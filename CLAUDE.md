@@ -217,24 +217,36 @@ Domyos/
   Status `0x07` (target_resistance_changed, param = niveau × 10) — plus réactif que le
   champ résistance du flux Rower Data pour l'alerte molette du dashboard.
 
-## Prochaine session
+## Prochaine session (15/10)
 
-0. **Valider en réel la vidéo Jellyfin** (`./domyos.sh stop-all` puis `start`, F5 dans les
-   fenêtres si l'ancienne page persiste) : lancer un épisode depuis la carte « Vidéo » de la
-   page de contrôle, vérifier image + son sur DP-1, pause / saut / sous-titres, enchaînement
-   d'épisodes, reprise dans Jellyfin ; charge CPU/VAAPI du serveur Jellyfin.
-1. **Valider en réel le lot « confort » v2** : `./domyos.sh start` → kiosque DP-1 + fenêtre
-   de contrôle HDMI-1 ; armer une séance à la souris depuis le bureau, s'asseoir, ramer :
-   le programme doit démarrer au premier coup ; bandeau, étape suivante, fin de programme,
-   rappel molette uniquement en rame. Puis `./domyos.sh install` si le service systemd
-   convient (vérifier l'anti-veille depuis le service : ligne `[VEILLE]` dans
-   `./domyos.sh logs`).
-2. Côté HA (Cowork) : corriger les cartes ApexCharts de la vue « Santé ».
-3. Optionnel : recalculer les agrégats de la session 14 avec la règle de coasting affinée
+État au soir du 14/10 : tout est commité et poussé (`30f76a9`). Le serveur réel doit être
+relancé (`./domyos.sh stop-all` puis `start`, F5 dans les fenêtres si l'ancienne page
+persiste) : le `ProgramRunner` envoie maintenant `plan` + `step_power`, et `programs.py`
+accepte une molette vide.
+
+1. **Valider en réel le dashboard v2 « cockpit »** (fait en démo le 14/10 au soir) : jauges
+   puissance / cadence / allure avec zone cible, frise du programme (étapes faites avec W
+   moyens, en cours, à venir, résumé + heure de fin), bandeau bas. Vérifier la lisibilité
+   depuis le rameur (tailles, contraste des zones cibles), le comportement en rame libre
+   (pas de zone, pas de bip) et pendant le coasting (« figé »). **Ajuster les zones
+   cibles** (`powerZone`, `CAD_ZONE`, `PACE_ZONE` en tête du script de `index.html`) avec les
+   moyennes mesurées par niveau de molette (`step_power` dans la frise donne les chiffres).
+2. **Valider en réel la vidéo Jellyfin** : lancer un épisode depuis la carte « Vidéo » de
+   la page de contrôle, image + son sur DP-1, pause / saut / sous-titres, enchaînement
+   d'épisodes, reprise visible dans Jellyfin ; charge CPU/VAAPI du serveur Jellyfin pendant
+   une séance ; disposition C (vidéo + 2 jauges) lisible depuis le rameur.
+3. **Page de contrôle** : vérifier le bandeau « Rameur » pleine largeur, l'onglet « Libre »
+   par défaut (molette vide = pas de consigne), « Modifier » sur un preset, 4 suggestions
+   Jellyfin par liste.
+4. Puis `./domyos.sh install` si le service systemd convient (vérifier l'anti-veille depuis
+   le service : ligne `[VEILLE]` dans `./domyos.sh logs`).
+5. Côté HA (Cowork) : corriger les cartes ApexCharts de la vue « Santé ».
+6. Optionnel : recalculer les agrégats de la session 14 avec la règle de coasting affinée
    (moy. 43,9 W, max 73 W, allure 200 s, cadence 21,7) — sessions 15 et 16 inchangées.
-4. Pistes suivantes (discussion du 14/10) : historique / progression dans le dashboard ou
-   HA, programmes à puissance cible (R2 ≈ 41 W, R5 ≈ 51 W mesurés), ceinture cardio BLE
-   (service 0x180D), tests automatisés logger + parseur FTMS.
+7. Pistes suivantes : zones cibles apprises automatiquement (moyenne par niveau sur les
+   séances passées), historique / progression dans le dashboard ou HA, programmes à
+   puissance cible, ceinture cardio BLE (service 0x180D), tests automatisés logger +
+   parseur FTMS, pause automatique de la vidéo quand le rameur passe en pause (option).
 
 Points ouverts :
 - Bip du dashboard : validé le 14/10 avec `--autoplay-policy=no-user-gesture-required`
