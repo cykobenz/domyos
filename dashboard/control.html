@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Domyos — Contrôle</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --surface-0: #111110; --surface-1: #1a1a19; --surface-2: #242423; --border: #2e2e2c;
+    --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8a897f;
+    --accent: #3987e5; --warn: #fab219; --good: #0ca30c; --bad: #d03b3b; --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary); font: 15px/1.45 "Inter", "Segoe UI", system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+  header { display: flex; align-items: center; gap: 14px; padding: 14px 22px; border-bottom: 1px solid var(--border); background: var(--surface-1); }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; background: var(--bad); }
+  .dot.on { background: var(--good); } .dot.paused { background: var(--warn); }
+  header .spacer { flex: 1; } header .muted { color: var(--text-muted); }
+  main { display: grid; grid-template-columns: 1fr 1.25fr; gap: 18px; padding: 18px 22px; max-width: 1500px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 18px; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin: 0 0 12px; }
+  button { font: inherit; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-primary); border-radius: 10px; padding: 8px 14px; cursor: pointer; }
+  button:hover { border-color: var(--text-muted); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.danger { background: transparent; border-color: var(--bad); color: #ff8a8a; }
+  button.small { padding: 4px 10px; font-size: 13px; }
+  button:disabled { opacity: .45; cursor: default; }
+  .armed { border-color: var(--accent); }
+  .armed .big { font-size: 22px; font-weight: 600; }
+  .armed .sub { color: var(--text-secondary); margin: 4px 0 10px; }
+  .armed .bar { height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden; margin: 8px 0; }
+  .armed .bar div { height: 100%; background: var(--accent); width: 0; transition: width .3s linear; }
+  .presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+  .preset { background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+  .preset .name { font-weight: 600; } .preset .desc { color: var(--text-muted); font-size: 13px; flex: 1; }
+  .preset .row { display: flex; gap: 6px; align-items: center; } .preset .dur { color: var(--text-secondary); font-size: 13px; margin-right: auto; }
+  .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px 14px; margin: 10px 0 14px; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-secondary); }
+  input, select { font: inherit; background: var(--surface-0); color: var(--text-primary); border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; }
+  input[type=number] { width: 100%; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 6px; }
+  .tabs button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--text-muted); font-weight: 500; } td.r, th.r { text-align: right; }
+  .steps { max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 12px; }
+  .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .actions input { width: 220px; }
+  .toast { position: fixed; bottom: 18px; right: 22px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; opacity: 0; transition: opacity .3s; }
+  .toast.show { opacity: 1; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 14px; } .kv span:nth-child(odd) { color: var(--text-muted); }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <span class="dot" id="dot"></span>
+  <h1>Domyos — contrôle de séance</h1>
+  <span class="muted" id="state-text">connexion au serveur…</span>
+  <span class="spacer"></span>
+  <span class="muted" id="live"></span>
+</header>
+
+<main>
+  <div>
+    <div class="card armed" id="armed">
+      <h2>Programme</h2>
+      <div id="armed-none" class="muted">Aucun programme armé. Choisis un preset ou compose une séance : elle démarrera à ton premier coup de rame.</div>
+      <div id="armed-info" hidden>
+        <div class="big" id="a-name"></div>
+        <div class="sub" id="a-step"></div>
+        <div class="bar"><div id="a-bar"></div></div>
+        <div class="kv"><span>Cible molette</span><span id="a-target"></span><span>Ensuite</span><span id="a-next"></span><span>Restant / total</span><span id="a-time"></span></div>
+        <div class="actions" style="margin-top:12px"><button class="danger" id="btn-stop">Arrêter / désarmer</button></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Rameur</h2>
+      <div class="kv" id="rower-kv"></div>
+    </div>
+
+    <div class="card">
+      <h2>Dernières séances</h2>
+      <table><thead><tr><th>Date</th><th class="r">Durée</th><th class="r">Distance</th><th class="r">Puiss. moy.</th><th class="r">Allure</th><th class="r">Coups</th></tr></thead>
+      <tbody id="sessions"></tbody></table>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <h2>Presets <span class="muted" style="text-transform:none;letter-spacing:0">(programs.json)</span></h2>
+      <div class="presets" id="presets"></div>
+    </div>
+
+    <div class="card">
+      <h2>Composer une séance</h2>
+      <div class="tabs" id="tabs">
+        <button data-kind="intervals" class="on">Intervalles</button>
+        <button data-kind="pyramid">Pyramide</button>
+        <button data-kind="steady">Palier</button>
+      </div>
+      <div class="fields" id="fields"></div>
+      <div class="steps"><table><thead><tr><th>#</th><th>Étape</th><th class="r">Durée</th><th class="r">Molette</th></tr></thead><tbody id="preview"></tbody></table></div>
+      <div class="actions">
+        <button class="primary" id="btn-arm">Armer cette séance</button>
+        <span class="muted" id="total"></span>
+        <span class="spacer" style="flex:1"></span>
+        <input id="save-name" placeholder="nom du preset">
+        <button id="btn-save">Enregistrer en preset</button>
+      </div>
+    </div>
+  </div>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const pad = n => String(n).padStart(2, "0");
+  const fmt = s => `${Math.floor(s / 60)}:${pad(s % 60)}`;
+  const fmtLong = s => s >= 3600 ? `${Math.floor(s / 3600)} h ${pad(Math.floor(s % 3600 / 60))}` : `${Math.floor(s / 60)} min${s % 60 ? ` ${pad(s % 60)} s` : ""}`;
+  let ws = null, status = {}, last = null, program = null, presets = [];
+  const send = o => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); };
+  let toastTimer; const toast = t => { $("toast").textContent = t; $("toast").classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => $("toast").classList.remove("show"), 2500); };
+
+  // ── état ──
+  function renderStatus() {
+    const dot = $("dot"); dot.className = "dot";
+    let t;
+    if (!ws || ws.readyState !== 1) t = "serveur injoignable";
+    else if (!status.connected) t = "rameur hors ligne";
+    else if (status.machine_state === "paused") { t = "pause"; dot.classList.add("paused"); }
+    else if (status.machine_state === "idle") { t = "prêt — le premier coup démarre la séance"; dot.classList.add("on"); }
+    else { t = `séance #${status.session_id} en cours`; dot.classList.add("on"); }
+    $("state-text").textContent = t;
+    const kv = [["Connexion", status.connected ? "connecté" : "hors ligne"], ["État", status.machine_state || "—"],
+                ["Session", status.session_id ? `#${status.session_id}` : "—"], ["Home Assistant", status.ha_connected == null ? "désactivé" : status.ha_connected ? "connecté" : "déconnecté"]];
+    if (last) kv.push(["Chrono", fmt(last.elapsed_s || 0)], ["Distance", `${last.distance_m || 0} m`], ["Molette", last.resistance || "—"]);
+    $("rower-kv").innerHTML = kv.map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join("");
+    $("live").textContent = last && status.machine_state === "running" ? `${last.power_w || 0} W · ${last.stroke_rate || 0} spm · ${last.distance_m || 0} m` : "";
+  }
+  function renderProgram() {
+    const on = !!program;
+    $("armed-none").hidden = on; $("armed-info").hidden = !on;
+    if (!on) return;
+    $("a-name").textContent = program.name;
+    $("a-step").textContent = program.started ? `${program.label} — étape ${program.step}/${program.steps}` : `${program.label} — armé, démarre au premier coup de rame`;
+    $("a-bar").style.width = `${Math.min(100, 100 * program.elapsed_s / program.total_s)}%`;
+    $("a-target").textContent = `R${program.resistance}`;
+    $("a-next").textContent = program.next_label ? `${program.next_label} (R${program.next_resistance})` : "dernière étape";
+    $("a-time").textContent = `${fmt(program.remaining_s)} / ${fmtLong(program.total_s)}`;
+  }
+  $("btn-stop").onclick = () => send({ type: "program_stop" });
+
+  // ── presets ──
+  async function loadPresets() {
+    presets = await (await fetch("/api/programs")).json();
+    $("presets").innerHTML = presets.map(p => `
+      <div class="preset">
+        <div class="name">${p.name}</div><div class="desc">${p.desc || ""}</div>
+        <div class="row"><span class="dur">${fmtLong(p.duration_s)} · ${p.steps_count} étape${p.steps_count > 1 ? "s" : ""}</span>
+          <button class="small" data-del="${p.id}" title="supprimer">✕</button>
+          <button class="small primary" data-arm="${p.id}">Armer</button></div>
+      </div>`).join("");
+    $("presets").querySelectorAll("[data-arm]").forEach(b => b.onclick = () => { send({ type: "program_start", preset: b.dataset.arm, source: "control" }); toast("programme armé"); });
+    $("presets").querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
+      const p = presets.find(x => x.id === b.dataset.del);
+      if (!confirm(`Supprimer le preset « ${p.name} » ?`)) return;
+      await fetch(`/api/programs/${b.dataset.del}`, { method: "DELETE" }); loadPresets();
+    });
+  }
+
+  // ── composer ──
+  const FIELDS = {
+    intervals: [["warmup", "Échauffement (s)", 120], ["work", "Effort (s)", 60], ["rest", "Récup (s)", 60], ["reps", "Répétitions", 6], ["hi", "Molette effort", 5], ["lo", "Molette récup", 2], ["cooldown", "Retour au calme (s)", 120]],
+    pyramid:   [["lo", "Molette basse", 2], ["hi", "Molette haute", 6], ["step", "Durée d'un palier (s)", 60]],
+    steady:    [["level", "Molette", 4], ["minutes", "Durée (min)", 20]],
+  };
+  let kind = "intervals";
+  const params = () => Object.fromEntries(FIELDS[kind].map(([k]) => [k, Number($("f-" + k).value)]));
+  function build(kind, p) {           // même logique que programs.py (aperçu seulement : le serveur fait foi)
+    if (kind === "intervals") {
+      const s = [{ label: "Échauffement", duration_s: p.warmup, resistance: p.lo }];
+      for (let i = 1; i <= p.reps; i++) s.push({ label: `Effort ${i}/${p.reps}`, duration_s: p.work, resistance: p.hi }, { label: `Récup ${i}/${p.reps}`, duration_s: p.rest, resistance: p.lo });
+      s.push({ label: "Retour au calme", duration_s: p.cooldown, resistance: p.lo });
+      return s.filter(x => x.duration_s > 0);
+    }
+    if (kind === "pyramid") {
+      const lv = []; for (let l = p.lo; l <= p.hi; l++) lv.push(l); for (let l = p.hi - 1; l >= p.lo; l--) lv.push(l);
+      return lv.map(l => ({ label: `Palier ${l}`, duration_s: p.step, resistance: l }));
+    }
+    return [{ label: `Palier ${p.level}`, duration_s: p.minutes * 60, resistance: p.level }];
+  }
+  function renderFields() {
+    $("fields").innerHTML = FIELDS[kind].map(([k, l, d]) => `<label>${l}<input type="number" id="f-${k}" value="${d}" min="0"></label>`).join("");
+    $("fields").querySelectorAll("input").forEach(i => i.oninput = renderPreview);
+    renderPreview();
+  }
+  function renderPreview() {
+    let steps = []; try { steps = build(kind, params()); } catch (e) {}
+    $("preview").innerHTML = steps.map((s, i) => `<tr><td>${i + 1}</td><td>${s.label}</td><td class="r">${fmt(s.duration_s)}</td><td class="r">R${s.resistance}</td></tr>`).join("");
+    const total = steps.reduce((a, s) => a + s.duration_s, 0);
+    $("total").textContent = steps.length ? `${steps.length} étapes · ${fmtLong(total)}` : "";
+    $("btn-arm").disabled = !steps.length;
+  }
+  $("tabs").querySelectorAll("button").forEach(b => b.onclick = () => {
+    kind = b.dataset.kind; $("tabs").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b)); renderFields();
+  });
+  const kindName = { intervals: "Intervalles", pyramid: "Pyramide", steady: "Palier" };
+  $("btn-arm").onclick = () => { send({ type: "program_start", kind, params: params(), name: $("save-name").value.trim() || kindName[kind], source: "control" }); toast("séance armée"); };
+  $("btn-save").onclick = async () => {
+    const name = $("save-name").value.trim();
+    if (!name) { $("save-name").focus(); toast("donne un nom au preset"); return; }
+    const p = params(); const steps = build(kind, p);
+    const desc = kind === "intervals" ? `${fmtLong(p.warmup)} échauffement, ${p.reps} × (${p.work} s R${p.hi} / ${p.rest} s R${p.lo}), ${fmtLong(p.cooldown)} retour au calme`
+               : kind === "pyramid" ? `Paliers de ${fmtLong(p.step)} de R${p.lo} à R${p.hi} puis retour` : `${p.minutes} min régulières à R${p.level}`;
+    const r = await fetch("/api/programs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, desc, kind, params: p }) });
+    if (r.ok) { toast(`preset « ${name} » enregistré`); $("save-name").value = ""; loadPresets(); } else toast("erreur : " + ((await r.json()).error || r.status));
+  };
+
+  // ── séances ──
+  async function loadSessions() {
+    const rows = await (await fetch("/api/sessions?limit=8")).json();
+    $("sessions").innerHTML = rows.map(s => {
+      const d = new Date(s.started_at);
+      return `<tr><td>${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}</td><td class="r">${fmt(s.duration_s || 0)}</td><td class="r">${s.distance_m || 0} m</td><td class="r">${s.avg_power_w ? Math.round(s.avg_power_w) + " W" : "—"}</td><td class="r">${s.avg_pace_s ? fmt(s.avg_pace_s) : "—"}</td><td class="r">${s.strokes || 0}</td></tr>`;
+    }).join("") || `<tr><td colspan="6" class="muted">aucune séance</td></tr>`;
+  }
+
+  // ── websocket ──
+  function connect() {
+    ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
+    ws.onopen = () => { renderStatus(); loadPresets(); loadSessions(); };
+    ws.onmessage = e => {
+      const m = JSON.parse(e.data);
+      if (m.type === "data") { last = m; renderStatus(); }
+      else if (m.type === "status") { status = m; renderStatus(); }
+      else if (m.type === "program") { program = m.active ? m : null; renderProgram(); if (!m.active && m.finished) toast(`programme « ${m.name} » terminé`); }
+      else if (m.type === "session" && m.event === "stopped") loadSessions();
+    };
+    ws.onclose = () => { renderStatus(); setTimeout(connect, 2000); };
+    ws.onerror = () => ws.close();
+  }
+  renderFields(); renderStatus(); renderProgram(); connect();
+})();
+</script>
+</body>
+</html>

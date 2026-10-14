@@ -22,3 +22,5 @@ MQTT_LIVE_INTERVAL_S = 1.0
 
 # Écran du kiosque (nom xrandr : xrandr --listmonitors) pour ./domyos.sh start
 KIOSK_SCREEN = "DP-1"
+# Écran de la fenêtre de contrôle (composer / armer la séance à la souris, au bureau)
+CONTROL_SCREEN = "HDMI-1"

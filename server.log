@@ -1,0 +1,25 @@
+[DB] /home/benz/Projets/Domyos/domyos.db ouverte (WAL)
+15:36:41 [HTTP] http://localhost:8765  (ws://localhost:8765/ws) — Ctrl+C pour quitter
+15:36:41 [HA] MQTT 192.168.0.205:1883 → domyos/woodrower/state (Rameur)
+15:36:41 [HA] connecté au broker
+15:36:42 [WS] client connecté (127.0.0.1) — 1 client(s)
+15:36:46 [WS] client connecté (127.0.0.1) — 2 client(s)
+15:36:51 [BLE] rameur injoignable (BleakDeviceNotFoundError), nouvel essai toutes les 5s
+15:37:07 [PROG] « Échauffement » : 1 étapes, 5 min 00 s (dashboard)
+15:37:30 [PROG] « Échauffement » : 1 étapes, 5 min 00 s (dashboard)
+15:37:43 [BLE] connecté au Domyos-ROW-0743 — cibles : ['resistance_target']
+15:37:43 [VEILLE] écran maintenu éveillé (rameur allumé)
+15:37:46 [BLE] machine status : target_resistance_changed (070a)
+[DB] Session #19 démarrée à 2026-10-14T13:37:46.738130+00:00
+15:37:59 [BLE] machine status : started_or_resumed (04)
+15:38:00 [BLE] machine status : target_resistance_changed (071e)
+15:38:01 [BLE] machine status : target_resistance_changed (0714)
+15:39:45 [BLE] machine status : paused (0202)
+15:41:47 [BLE] machine status : stopped (0201)
+[DB] Session #19 terminée — 01:46 | 271 m | 6 kcal | 45.4 W moy. | 962 points dont 516 figés
+15:41:47 [HA] webhook OK (session #19, HTTP 200)
+15:41:53 [BLE] rameur déconnecté
+15:41:53 [VEILLE] anti-veille levé (rameur éteint)
+15:42:08 [BLE] rameur injoignable (BleakDeviceNotFoundError), nouvel essai toutes les 5s
+15:42:35 [WS] client parti — 1 client(s)
+15:42:53 [WS] client parti — 0 client(s)

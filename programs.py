@@ -79,3 +79,38 @@ def build_from_json(path: str | Path) -> tuple[str, list[dict]]:
         data["type"] = "steps"
     name, steps = build(data)
     return (data.get("name") or Path(path).stem), steps
+
+
+def _slug(text: str) -> str:
+    import re, unicodedata
+    t = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]+", "_", t.lower()).strip("_") or "programme"
+
+
+def save_preset(body: dict) -> str:
+    """Ajoute un preset (ou remplace celui de même id) dans programs.json. Renvoie l'id."""
+    kind = body.get("kind") or body.get("type") or "steps"
+    spec = {"type": kind, "name": body.get("name"), "params": body.get("params"), "steps": body.get("steps")}
+    name, steps = build(spec)                      # valide
+    pid = body.get("id") or _slug(name)
+    entry = {"id": pid, "name": name, "desc": body.get("desc", ""), "type": kind}
+    if kind == "steps":
+        entry["steps"] = steps
+    else:
+        entry["params"] = spec["params"] or {}
+    data = json.loads(PRESETS_PATH.read_text()) if PRESETS_PATH.exists() else {"presets": []}
+    data["presets"] = [p for p in data.get("presets", []) if p.get("id") != pid] + [entry]
+    PRESETS_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+    return pid
+
+
+def delete_preset(pid: str) -> bool:
+    if not PRESETS_PATH.exists():
+        return False
+    data = json.loads(PRESETS_PATH.read_text())
+    before = len(data.get("presets", []))
+    data["presets"] = [p for p in data.get("presets", []) if p.get("id") != pid]
+    if len(data["presets"]) == before:
+        return False
+    PRESETS_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+    return True

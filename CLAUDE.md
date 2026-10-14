@@ -37,12 +37,13 @@ Domyos/
 │                         + ProgramRunner (déroule les programmes sur le chrono du rameur)
 ├── programs.py        ← construction des programmes (intervals / pyramid / steady / steps)
 ├── programs.json      ← presets proposés par le dashboard (touche P) et `trainer.py run <id>`
-├── domyos.sh          ← lanceur : start | kiosk | stop | stop-all | status | logs | install
+├── domyos.sh          ← lanceur : start | kiosk | control | stop | stop-all | status | logs | install
 ├── ha.py              ← Home Assistant : MQTT Discovery + état 1 Hz + webhook fin de séance
 ├── config.py          ← secrets locaux (MQTT, webhook) — NON versionné ; modèle : config.example.py
 ├── .gitignore         ← __pycache__, *.db*, config.py, .env, *.odt
 ├── dashboard/
-│   └── index.html     ← dashboard TV (HTML/Canvas2D, sans dépendance), servi sur http://localhost:8765/
+│   ├── index.html     ← dashboard TV (HTML/Canvas2D, sans dépendance), servi sur http://localhost:8765/
+│   └── control.html   ← page de contrôle (bureau, souris) : composer / armer / arrêter une séance, presets, historique
 └── trainer.py         ← client CLI des programmes : list | run <preset|type|json> [--detach] | stop | probe | set
 ```
 
@@ -127,12 +128,23 @@ Domyos/
     les 10 s tant que la molette n'est pas sur la cible.
   - **`trainer.py`** = client CLI du runner : `list`, `run <preset|intervals|pyramid|steady|fichier.json>`
     (suit et affiche les étapes ; `--detach` rend la main), `stop`. `--no-send` toléré (no-op).
-  - **`domyos.sh`** : `start` (serveur + kiosque Brave sur `config.KIOSK_SCREEN`, profil
-    séparé `~/.config/domyos-kiosk` pour que le flag autoplay s'applique), `kiosk`, `stop`
-    (kiosque), `stop-all`, `status`, `logs`, `install` (service systemd utilisateur
+  - **`domyos.sh`** : `start` (serveur + kiosque plein écran sur `config.KIOSK_SCREEN` +
+    fenêtre de contrôle 1280×900 sur `config.CONTROL_SCREEN`), `kiosk`, `control`, `stop`
+    (fenêtres), `stop-all`, `status`, `logs`, `install` (service systemd utilisateur
     `domyos-server`, démarre à l'ouverture de session, `Restart=on-failure`), `uninstall`.
-    Validé en démo ; **le kiosque sur l'écran DP-1 reste à vérifier en réel** (si ce n'est
-    pas le bon écran : `KIOSK_SCREEN` dans `config.py`, noms via `xrandr --listmonitors`).
+    Profils Brave dédiés (`~/.config/domyos-kiosk`, `~/.config/domyos-control`) seedés pour
+    supprimer le bandeau « analyses de produits » ; placement et plein écran forcés par
+    **xdotool** (Chromium ignore `--window-position` en kiosque ; F11 envoyé comme vraie
+    frappe). Validé en réel le 14/10 : kiosque 1920×1080 fullscreen sur DP-1, contrôle sur
+    HDMI-1.
+  - **Page de contrôle `control.html`** (pas de clavier au rameur) : état du rameur,
+    programme armé / en cours (barre, étape suivante, bouton Arrêter), presets avec
+    « Armer » et suppression, composeur Intervalles / Pyramide / Palier avec aperçu des
+    étapes, « Armer cette séance » et « Enregistrer en preset » (POST `/api/programs`,
+    écrit `programs.json`), 8 dernières séances. Un programme armé **démarre tout seul au
+    premier coup de rame** (ProgramRunner). Validé en démo.
+  - Rappel sonore molette **seulement en séance** (`running` + programme démarré), plus
+    de bips en pause / prêt / hors ligne.
 - ⚠️ **La résistance du Woodrower n'est pas motorisée.** Validé en réel : la console
   accepte Set Target Resistance à l'arrêt (indication `success`, niveau reflété dans
   Rower Data) mais le refuse en séance (`invalid_parameter`) et l'effort ne change
@@ -164,11 +176,12 @@ Domyos/
 
 ## Prochaine session
 
-1. **Valider en réel le lot « confort »** : `./domyos.sh start` (kiosque sur le bon écran ?
-   sinon `KIOSK_SCREEN` dans `config.py`), touche P → lancer un preset, suivre le bandeau
-   (étape suivante, fin de programme), rappel sonore molette toutes les 10 s, puis
-   `./domyos.sh install` si le service systemd convient (vérifier que l'anti-veille GNOME
-   fonctionne depuis le service : ligne `[VEILLE]` dans `./domyos.sh logs`).
+1. **Valider en réel le lot « confort » v2** : `./domyos.sh start` → kiosque DP-1 + fenêtre
+   de contrôle HDMI-1 ; armer une séance à la souris depuis le bureau, s'asseoir, ramer :
+   le programme doit démarrer au premier coup ; bandeau, étape suivante, fin de programme,
+   rappel molette uniquement en rame. Puis `./domyos.sh install` si le service systemd
+   convient (vérifier l'anti-veille depuis le service : ligne `[VEILLE]` dans
+   `./domyos.sh logs`).
 2. Côté HA (Cowork) : corriger les cartes ApexCharts de la vue « Santé ».
 3. Optionnel : recalculer les agrégats de la session 14 avec la règle de coasting affinée
    (moy. 43,9 W, max 73 W, allure 200 s, cadence 21,7) — sessions 15 et 16 inchangées.
@@ -303,8 +316,9 @@ curl localhost:8765/api/state
 
 # Séance au quotidien : lanceur unique
 ./domyos.sh install        # une fois : service systemd utilisateur domyos-server (démarre à l'ouverture de session)
-./domyos.sh start          # serveur (si besoin) + kiosque Brave sur l'écran config.KIOSK_SCREEN
-./domyos.sh status | logs | stop | stop-all
+./domyos.sh start          # serveur (si besoin) + kiosque (config.KIOSK_SCREEN) + fenêtre de contrôle (config.CONTROL_SCREEN)
+./domyos.sh status | logs | control | stop | stop-all
+# http://localhost:8765/control.html : composer / armer une séance à la souris (démarre au 1er coup de rame)
 
 # Dashboard en kiosque, à la main (profil séparé pour que le flag autoplay → bip s'applique)
 brave-browser --user-data-dir=~/.config/domyos-kiosk --kiosk --app=http://localhost:8765/ --autoplay-policy=no-user-gesture-required

@@ -1,19 +1,22 @@
 #!/usr/bin/env bash
 # Domyos Woodrower — lanceur unique
 #
-#   ./domyos.sh start      serveur (service systemd utilisateur, ou arrière-plan) + kiosque sur l'écran KIOSK_SCREEN
-#   ./domyos.sh kiosk      seulement le kiosque (le serveur tourne déjà)
-#   ./domyos.sh stop       ferme le kiosque (le serveur continue : il se reconnecte seul au rameur)
-#   ./domyos.sh stop-all   ferme le kiosque ET arrête le serveur
+#   ./domyos.sh start      serveur (service systemd utilisateur, ou arrière-plan) + kiosque plein écran
+#                          sur KIOSK_SCREEN + fenêtre de contrôle (control.html) sur CONTROL_SCREEN
+#   ./domyos.sh kiosk      seulement les deux fenêtres (le serveur tourne déjà)
+#   ./domyos.sh control    seulement la fenêtre de contrôle
+#   ./domyos.sh stop       ferme les fenêtres (le serveur continue : il se reconnecte seul au rameur)
+#   ./domyos.sh stop-all   ferme les fenêtres ET arrête le serveur
 #   ./domyos.sh status     état du serveur, du rameur, du kiosque
 #   ./domyos.sh logs       suit les logs du serveur
 #   ./domyos.sh install    installe + active le service systemd utilisateur domyos-server (démarre à l'ouverture de session)
 #   ./domyos.sh uninstall  retire le service
 #
-# L'écran du kiosque vient de KIOSK_SCREEN dans config.py (nom xrandr, ex. "DP-1"), ou de
-# la variable d'environnement DOMYOS_SCREEN. Brave est lancé avec son propre profil
-# (~/.config/domyos-kiosk) pour que les flags (autoplay → bip) s'appliquent même si un
-# autre Brave est ouvert.
+# Les écrans viennent de KIOSK_SCREEN / CONTROL_SCREEN dans config.py (noms xrandr, ex.
+# "DP-1"), ou des variables d'environnement DOMYOS_SCREEN / DOMYOS_CONTROL_SCREEN. Brave est
+# lancé avec des profils dédiés (~/.config/domyos-kiosk, ~/.config/domyos-control) pour que
+# les flags (autoplay → bip) s'appliquent même si un autre Brave est ouvert. Le placement
+# et le plein écran sont forcés avec xdotool (Chromium ignore --window-position en kiosque).
 
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,11 +26,63 @@ UNIT="domyos-server"
 UNIT_FILE="$HOME/.config/systemd/user/${UNIT}.service"
 LOG="$DIR/server.log"
 PROFILE="$HOME/.config/domyos-kiosk"
+PROFILE_CTRL="$HOME/.config/domyos-control"
 BRAVE="$(command -v brave-browser || command -v brave || command -v chromium || command -v google-chrome || true)"
 
-screen_name() {
-  if [ -n "${DOMYOS_SCREEN:-}" ]; then echo "$DOMYOS_SCREEN"; return; fi
-  python3 -c "import sys; sys.path.insert(0, '$DIR'); import config; print(getattr(config, 'KIOSK_SCREEN', ''))" 2>/dev/null || true
+config_value() {   # config_value KIOSK_SCREEN DP-1
+  python3 -c "import sys; sys.path.insert(0, '$DIR'); import config; print(getattr(config, '$1', '$2'))" 2>/dev/null || echo "$2"
+}
+screen_name()  { echo "${DOMYOS_SCREEN:-$(config_value KIOSK_SCREEN DP-1)}"; }
+control_name() { echo "${DOMYOS_CONTROL_SCREEN:-$(config_value CONTROL_SCREEN HDMI-1)}"; }
+
+# profil Brave neuf : pas de bandeau « analyses de produits » ni de page d'accueil
+seed_profile() {
+  local dir="$1"
+  [ -d "$dir" ] && return 0
+  mkdir -p "$dir/Default"
+  echo '{"brave":{"p3a":{"notice_acknowledged":true,"enabled":false},"stats":{"reporting_enabled":false}}}' >"$dir/Local State"
+  echo '{"brave":{"p3a":{"notice_acknowledged":true},"welcome_page":{"shown":true}},"browser":{"has_seen_welcome_page":true}}' >"$dir/Default/Preferences"
+}
+
+# open_window <profil> <url> <classe WM> <écran> <fullscreen 0/1> [largeur hauteur]
+open_window() {
+  local profile="$1" url="$2" cls="$3" screen="$4" full="$5" ww="${6:-}" wh="${7:-}"
+  local geo w h x y
+  seed_profile "$profile"
+  geo="$(screen_geometry "$screen")"
+  if [ -n "$geo" ]; then
+    read -r w h x y <<<"$geo"
+  else
+    echo "⚠ écran « ${screen:-non défini} » introuvable dans xrandr (xrandr --listmonitors) → écran courant" >&2
+    w=1920; h=1080; x=0; y=0
+  fi
+  if [ "$full" = 1 ]; then ww=$w; wh=$h; else x=$((x + (w - ww) / 2)); y=$((y + (h - wh) / 2)); fi
+  nohup "$BRAVE" --user-data-dir="$profile" --class="$cls" --no-first-run --app="$url" \
+    --autoplay-policy=no-user-gesture-required --disable-session-crashed-bubble \
+    --window-position="${x},${y}" --window-size="${ww},${wh}" >/dev/null 2>&1 &
+  disown
+  if command -v xdotool >/dev/null; then
+    local wid=""
+    for _ in $(seq 1 40); do
+      wid="$(xdotool search --onlyvisible --class "$cls" 2>/dev/null | head -1 || true)"   # pipefail : search renvoie 1 tant que rien
+      [ -n "$wid" ] && break
+      sleep 0.25
+    done
+    if [ -n "$wid" ]; then
+      xdotool windowmove "$wid" "$x" "$y" >/dev/null 2>&1 || true
+      xdotool windowsize "$wid" "$ww" "$wh" >/dev/null 2>&1 || true
+      if [ "$full" = 1 ]; then
+        sleep 0.8
+        xdotool windowmove "$wid" "$x" "$y" >/dev/null 2>&1 || true
+        # F11 = plein écran Chromium ; envoyé comme vraie frappe (XTEST) à la fenêtre activée,
+        # car Chromium ignore les événements synthétiques de `key --window`
+        xdotool windowactivate --sync "$wid" >/dev/null 2>&1 || true
+        xdotool key --clearmodifiers F11 >/dev/null 2>&1 || true
+      fi
+    else
+      echo "⚠ fenêtre $cls non trouvée par xdotool (placement non forcé)" >&2
+    fi
+  fi
 }
 
 # géométrie xrandr de l'écran → "W H X Y" (vide si introuvable)
@@ -40,7 +95,8 @@ screen_geometry() {
 
 unit_installed() { [ -f "$UNIT_FILE" ]; }
 server_up() { curl -sf --max-time 2 "${URL}api/state" >/dev/null 2>&1; }
-kiosk_pid() { pgrep -f -- "--user-data-dir=${PROFILE}" | head -1 || true; }
+kiosk_pid()   { pgrep -f -- "--user-data-dir=${PROFILE} " | head -1 || true; }
+control_pid() { pgrep -f -- "--user-data-dir=${PROFILE_CTRL} " | head -1 || true; }
 
 cmd_server_start() {
   if server_up; then echo "serveur : déjà en ligne sur $URL"; return; fi
@@ -67,24 +123,25 @@ cmd_server_stop() {
 
 cmd_kiosk() {
   [ -z "$BRAVE" ] && { echo "⚠ Brave / Chromium introuvable" >&2; return 1; }
-  if [ -n "$(kiosk_pid)" ]; then echo "kiosque : déjà ouvert"; return; fi
-  local name geo pos=() ; name="$(screen_name)"; geo="$(screen_geometry "$name")"
-  if [ -n "$geo" ]; then
-    read -r w h x y <<<"$geo"
-    pos=(--window-position="${x},${y}" --window-size="${w},${h}")
-    echo "kiosque : écran $name (${w}x${h} en +${x}+${y})"
-  else
-    echo "kiosque : écran « ${name:-non défini} » introuvable dans xrandr → écran courant"
+  if [ -n "$(kiosk_pid)" ]; then echo "kiosque : déjà ouvert"; else
+    echo "kiosque : écran $(screen_name), plein écran"
+    open_window "$PROFILE" "$URL" "domyos-kiosk" "$(screen_name)" 1
   fi
-  nohup "$BRAVE" --user-data-dir="$PROFILE" --no-first-run --kiosk --app="$URL" \
-    --autoplay-policy=no-user-gesture-required --disable-session-crashed-bubble \
-    "${pos[@]}" >/dev/null 2>&1 &
-  disown
 }
 
-cmd_kiosk_stop() {
-  local pid; pid="$(kiosk_pid)"
-  if [ -n "$pid" ]; then pkill -f -- "--user-data-dir=${PROFILE}" || true; echo "kiosque : fermé"; else echo "kiosque : pas ouvert"; fi
+cmd_control() {
+  [ -z "$BRAVE" ] && { echo "⚠ Brave / Chromium introuvable" >&2; return 1; }
+  if [ -n "$(control_pid)" ]; then echo "contrôle : déjà ouvert"; else
+    echo "contrôle : écran $(control_name), fenêtre 1280×900"
+    open_window "$PROFILE_CTRL" "${URL}control.html" "domyos-control" "$(control_name)" 0 1280 900
+  fi
+}
+
+cmd_windows_stop() {
+  local n=0
+  [ -n "$(kiosk_pid)" ]   && { pkill -f -- "--user-data-dir=${PROFILE} " || true; n=$((n+1)); }
+  [ -n "$(control_pid)" ] && { pkill -f -- "--user-data-dir=${PROFILE_CTRL} " || true; n=$((n+1)); }
+  [ "$n" -gt 0 ] && echo "fenêtres : fermées" || echo "fenêtres : aucune ouverte"
 }
 
 cmd_status() {
@@ -101,7 +158,8 @@ print(f\"programme: {p['name']} — {p['label']} ({p['step']}/{p['steps']}), res
     echo "serveur  : hors ligne"
   fi
   unit_installed && echo "service  : $UNIT $(systemctl --user is-enabled "$UNIT" 2>/dev/null || true) / $(systemctl --user is-active "$UNIT" 2>/dev/null || true)" || echo "service  : non installé (./domyos.sh install)"
-  [ -n "$(kiosk_pid)" ] && echo "kiosque  : ouvert" || echo "kiosque  : fermé"
+  [ -n "$(kiosk_pid)" ] && echo "kiosque  : ouvert ($(screen_name))" || echo "kiosque  : fermé"
+  [ -n "$(control_pid)" ] && echo "contrôle : ouvert ($(control_name))" || echo "contrôle : fermé"
 }
 
 cmd_logs() {
@@ -142,13 +200,14 @@ cmd_uninstall() {
 }
 
 case "${1:-start}" in
-  start)     cmd_server_start; cmd_kiosk ;;
-  kiosk)     cmd_kiosk ;;
-  stop)      cmd_kiosk_stop ;;
-  stop-all)  cmd_kiosk_stop; cmd_server_stop ;;
+  start)     cmd_server_start; cmd_kiosk; cmd_control ;;
+  kiosk)     cmd_kiosk; cmd_control ;;
+  control)   cmd_control ;;
+  stop)      cmd_windows_stop ;;
+  stop-all)  cmd_windows_stop; cmd_server_stop ;;
   status)    cmd_status ;;
   logs)      cmd_logs ;;
   install)   cmd_install ;;
   uninstall) cmd_uninstall ;;
-  *) sed -n '2,13p' "$0"; exit 1 ;;
+  *) sed -n '2,15p' "$0"; exit 1 ;;
 esac

@@ -30,7 +30,8 @@ Messages clients → serveur (pilotage, étape 3) :
           chrono du rameur (ProgramRunner) et diffuse {"type":"program", ...} à chaque
           seconde / changement d'étape ; {"type":"program","active":false,"finished":bool}
           à la fin ou sur {"type":"program_stop"}
-    GET /api/programs : presets de programs.json
+    GET /api/programs : presets de programs.json ; POST (ajout/remplacement) ; DELETE /api/programs/{id}
+    dashboard/control.html : page de contrôle (bureau) — compose, arme et arrête les programmes
 """
 
 import asyncio
@@ -503,6 +504,23 @@ class RowerServer:
         except (ValueError, KeyError, json.JSONDecodeError) as e:
             return web.json_response({"error": f"programs.json invalide : {e}"}, status=500)
 
+    async def api_program_save(self, request) -> web.Response:
+        """POST {name, desc?, kind, params?|steps?} → ajoute (ou remplace par id) un preset."""
+        try:
+            body = await request.json()
+            pid = programs.save_preset(body)
+        except (ValueError, KeyError, TypeError, json.JSONDecodeError) as e:
+            return web.json_response({"error": str(e)}, status=400)
+        log("PROG", f"preset « {pid} » enregistré dans programs.json")
+        return web.json_response({"id": pid, "presets": programs.presets()})
+
+    async def api_program_delete(self, request) -> web.Response:
+        pid = request.match_info["id"]
+        if not programs.delete_preset(pid):
+            raise web.HTTPNotFound()
+        log("PROG", f"preset « {pid} » supprimé")
+        return web.json_response({"presets": programs.presets()})
+
     async def api_state(self, _request) -> web.Response:
         return web.json_response({**self.status_msg(), "last_data": self.last_data,
                                   "program": self.program})
@@ -550,6 +568,8 @@ class RowerServer:
         app.router.add_get("/ws", self.ws_handler)
         app.router.add_get("/api/state", self.api_state)
         app.router.add_get("/api/programs", self.api_programs)
+        app.router.add_post("/api/programs", self.api_program_save)
+        app.router.add_delete("/api/programs/{id}", self.api_program_delete)
         app.router.add_get("/api/sessions", self.api_sessions)
         app.router.add_get("/api/sessions/{id}", self.api_session)
         if DASHBOARD_DIR.is_dir():

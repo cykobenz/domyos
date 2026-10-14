@@ -307,7 +307,9 @@
     const bad = !!program && actualResistance != null && actualResistance !== program.resistance;
     $("program").classList.toggle("mismatch", bad);
     $("p-todo").textContent = bad ? `→ règle la molette sur ${program.resistance}` : "";
-    if (bad && !mismatchTimer) mismatchTimer = setInterval(() => beep(3, 660), 10000);
+    // rappel seulement pendant qu'on rame (pas en pause, prêt ou hors ligne)
+    const rowing = () => serverUp && status.connected && status.machine_state === "running" && program && program.started;
+    if (bad && !mismatchTimer) mismatchTimer = setInterval(() => { if (rowing()) beep(3, 660); }, 10000);
     if (!bad && mismatchTimer) { clearInterval(mismatchTimer); mismatchTimer = null; }
   }
 

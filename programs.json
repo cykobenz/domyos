@@ -6,42 +6,71 @@
       "name": "Échauffement",
       "desc": "5 min tranquilles à R2",
       "type": "steady",
-      "params": {"level": 2, "minutes": 5}
+      "params": {
+        "level": 2,
+        "minutes": 5
+      }
     },
     {
       "id": "intervalles_courts",
       "name": "Intervalles courts",
       "desc": "1 min échauffement, 6 × (30 s R5 / 30 s R2), 1 min retour au calme",
       "type": "intervals",
-      "params": {"warmup": 60, "work": 30, "rest": 30, "reps": 6, "hi": 5, "lo": 2, "cooldown": 60}
+      "params": {
+        "warmup": 60,
+        "work": 30,
+        "rest": 30,
+        "reps": 6,
+        "hi": 5,
+        "lo": 2,
+        "cooldown": 60
+      }
     },
     {
       "id": "intervalles",
       "name": "Intervalles",
       "desc": "2 min échauffement, 6 × (1 min R6 / 1 min R3), 2 min retour au calme",
       "type": "intervals",
-      "params": {"warmup": 120, "work": 60, "rest": 60, "reps": 6, "hi": 6, "lo": 3, "cooldown": 120}
+      "params": {
+        "warmup": 120,
+        "work": 60,
+        "rest": 60,
+        "reps": 6,
+        "hi": 6,
+        "lo": 3,
+        "cooldown": 120
+      }
     },
     {
       "id": "pyramide",
       "name": "Pyramide",
       "desc": "Paliers de 1 min de R2 à R6 puis retour à R2",
       "type": "pyramid",
-      "params": {"lo": 2, "hi": 6, "step": 60}
+      "params": {
+        "lo": 2,
+        "hi": 6,
+        "step": 60
+      }
     },
     {
       "id": "fond_20",
       "name": "Fond 20 min",
       "desc": "20 min régulières à R4",
       "type": "steady",
-      "params": {"level": 4, "minutes": 20}
+      "params": {
+        "level": 4,
+        "minutes": 20
+      }
     },
     {
       "id": "fond_30",
       "name": "Fond 30 min",
       "desc": "30 min régulières à R4",
       "type": "steady",
-      "params": {"level": 4, "minutes": 30}
+      "params": {
+        "level": 4,
+        "minutes": 30
+      }
     }
   ]
 }
