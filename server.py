@@ -32,6 +32,9 @@ Messages clients → serveur (pilotage, étape 3) :
           à la fin ou sur {"type":"program_stop"}
     GET /api/programs : presets de programs.json ; POST (ajout/remplacement) ; DELETE /api/programs/{id}
     dashboard/control.html : page de contrôle (bureau) — compose, arme et arrête les programmes
+    Vidéo Jellyfin (video.py, si JELLYFIN_URL dans config.py) : {"type":"video_play", item_id}
+      / video_pause / video_resume / video_stop / video_seek / video_volume ; le serveur
+      diffuse {"type":"video", …} ; GET /api/video/{home,search,episodes/{id}} ; proxy /jf/…
 """
 
 import asyncio
@@ -207,6 +210,7 @@ class RowerServer:
         self.control_acquired = False
         self.last_data: dict | None = None
         self.runner = ProgramRunner(self)    # programme en cours (dashboard / trainer.py)
+        self.video = None                    # video.Video (Jellyfin) ou None
         self.demo_resistance = 4             # résistance du rameur simulé (--demo)
         self._waiting_announced = False
         self._paused_broadcast = False
@@ -232,6 +236,7 @@ class RowerServer:
             "machine_state": self.machine_state,
             "clients": len(self.clients),
             "ha_connected": self.ha.connected if self.ha else None,
+            "video_enabled": bool(self.video and self.video.enabled),
         }
 
     def data_msg(self, p: dict, session_id: int | None) -> dict:
@@ -417,6 +422,10 @@ class RowerServer:
     # ── Pilotage (Control Point) ──────────────────────────────────────────────
     async def handle_command(self, msg: dict) -> dict:
         cmd = msg.get("type")
+        if isinstance(cmd, str) and cmd.startswith("video_"):
+            if not self.video:
+                return {"type": "error", "error": "video_disabled", "command": cmd}
+            return await self.video.handle_command(msg)
         if cmd == "program_start":
             try:
                 if msg.get("preset"):
@@ -484,6 +493,8 @@ class RowerServer:
                 await ws.send_json(self.last_data)
             if self.program:
                 await ws.send_json(self.program)
+            if self.video and self.video.state.get("active"):
+                await ws.send_json(self.video.state)
             async for msg in ws:
                 if msg.type == WSMsgType.TEXT:
                     try:
@@ -523,7 +534,8 @@ class RowerServer:
 
     async def api_state(self, _request) -> web.Response:
         return web.json_response({**self.status_msg(), "last_data": self.last_data,
-                                  "program": self.program})
+                                  "program": self.program,
+                                  "video": self.video.state if self.video else None})
 
     def _db(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
@@ -580,6 +592,8 @@ class RowerServer:
         app.router.add_delete("/api/programs/{id}", self.api_program_delete)
         app.router.add_get("/api/sessions", self.api_sessions)
         app.router.add_get("/api/sessions/{id}", self.api_session)
+        if self.video:
+            self.video.add_routes(app)       # /api/video/* + proxy /jf/* (avant le statique)
         if DASHBOARD_DIR.is_dir():
             app.router.add_static("/", DASHBOARD_DIR)
         return app
@@ -592,6 +606,8 @@ class RowerServer:
         log("HTTP", f"http://localhost:{port}  (ws://localhost:{port}/ws) — Ctrl+C pour quitter")
         if self.ha:
             await self.ha.start()
+        if self.video:
+            await self.video.start()
         demo = "--demo" in sys.argv
         ble_task = asyncio.create_task(self.demo_loop() if demo else self.ble_loop())
         try:
@@ -604,6 +620,8 @@ class RowerServer:
             self.logger.close()
             if self.ha:
                 await self.ha.stop()
+            if self.video:
+                await self.video.stop()
             if self.inhibitor:
                 await self.inhibitor.set(False)
             log("SRV", "arrêté")
@@ -614,6 +632,7 @@ if __name__ == "__main__":
     # --port N : port HTTP/WS (défaut 8765)
     # --no-ha : sans Home Assistant ; --ha : HA aussi en démo (device séparé « Rameur démo »)
     # --no-inhibit : ne pas bloquer la mise en veille de l'écran quand le rameur est allumé
+    # --no-video : sans Jellyfin (sinon activé dès que config.py définit JELLYFIN_URL + clé)
     demo = "--demo" in sys.argv
     db = Path(__file__).parent / "demo.db" if demo else DB_PATH
     port = int(sys.argv[sys.argv.index("--port") + 1]) if "--port" in sys.argv else PORT
@@ -625,7 +644,11 @@ if __name__ == "__main__":
     elif cfg is None:
         log("HA", "config.py absent → intégration Home Assistant désactivée")
     inhibitor = None if "--no-inhibit" in sys.argv else ScreenInhibitor()
+    server = RowerServer(db, ha, inhibitor)
+    if "--no-video" not in sys.argv and cfg is not None and getattr(cfg, "JELLYFIN_URL", "") and getattr(cfg, "JELLYFIN_API_KEY", ""):
+        from video import Video
+        server.video = Video(cfg, server)
     try:
-        asyncio.run(RowerServer(db, ha, inhibitor).run(port))
+        asyncio.run(server.run(port))
     except KeyboardInterrupt:
         pass

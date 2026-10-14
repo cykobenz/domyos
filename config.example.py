@@ -24,3 +24,8 @@ MQTT_LIVE_INTERVAL_S = 1.0
 KIOSK_SCREEN = "DP-1"
 # Écran de la fenêtre de contrôle (composer / armer la séance à la souris, au bureau)
 CONTROL_SCREEN = "HDMI-1"
+
+# Jellyfin (vidéo incrustée dans le dashboard pendant la séance) — Tableau de bord → Clés API
+JELLYFIN_URL = "http://192.168.0.203:8096"
+JELLYFIN_API_KEY = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+JELLYFIN_USER = ""          # nom d'utilisateur Jellyfin (vide = premier utilisateur)

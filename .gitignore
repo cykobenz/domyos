@@ -9,3 +9,4 @@ config.py
 *.odt
 *.pdf
 .playwright-mcp/
+server.log

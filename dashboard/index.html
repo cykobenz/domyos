@@ -129,6 +129,42 @@
   #banner.paused .big { color: var(--status-warning); }
   #banner.offline .big { color: var(--status-critical); font-size: 9vh; letter-spacing: .02em; }
   #banner.idle .big { color: var(--text-secondary); font-size: 9vh; letter-spacing: .02em; }
+
+  /* ── vidéo Jellyfin (video.py) : lecteur en haut à gauche, métriques autour ── */
+  #video {
+    display: none; position: relative; background: #000; border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden; aspect-ratio: 16 / 9; max-height: 58vh; width: 100%;
+  }
+  #video video { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
+  #video .caption {
+    position: absolute; left: 0; right: 0; bottom: 0; padding: 1.4vh 2vw; font-size: 2.6vh; display: none;
+    background: linear-gradient(transparent, rgba(0,0,0,.85));
+  }
+  #video.paused .caption, #video.err .caption { display: block; }
+  #video.paused .caption::before { content: "⏸ "; }
+  #video.err .caption { color: var(--status-warning); }
+  body.video {
+    grid-template-columns: minmax(0, 62fr) minmax(0, 38fr);
+    grid-template-rows: auto auto auto minmax(0, 1fr);
+    grid-template-areas: "header header" "program program" "video big" "small charts";
+    column-gap: 1.5vw;
+  }
+  body.video header { grid-area: header; }
+  body.video #program { grid-area: program; }
+  body.video #video { display: block; grid-area: video; }
+  body.video .tiles.big { grid-area: big; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+  body.video .tiles.big .tile .value { font-size: 8.5vh; }
+  body.video .tiles.small { grid-area: small; }
+  body.video .charts { grid-area: charts; }
+  body.video .chart h2 { font-size: 1.8vh; white-space: nowrap; } body.video .chart h2 .last { font-size: 2.2vh; }
+  /* en mode vidéo, le bandeau PAUSE / PRÊT devient une pastille pour ne pas couvrir l'image */
+  body.video #banner {
+    inset: auto 2vw 2vh auto; backdrop-filter: none; background: var(--surface-2);
+    border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5vh 2.5vw; gap: .5vh;
+  }
+  body.video #banner .big { font-size: 5vh; letter-spacing: .04em; }
+  body.video #banner.offline .big, body.video #banner.idle .big { font-size: 4vh; }
+  body.video #banner .sub { font-size: 2.2vh; }
 </style>
 </head>
 <body>
@@ -152,6 +188,8 @@
   <span class="remaining" id="p-remaining"></span>
   <div class="bar" id="p-bar"></div>
 </section>
+
+<section id="video"><video id="vid" playsinline></video><div class="caption" id="vid-caption"></div></section>
 
 <section class="tiles big">
   <div class="tile"><div class="label">Temps</div><div class="value" id="v-time">00:00</div></div>
@@ -186,6 +224,7 @@
   <div class="hint">chiffre ou ↑↓ + Entrée : lancer · <span class="stop">S : arrêter le programme en cours</span> · Échap : fermer</div>
 </div>
 
+<script src="vendor/hls.min.js"></script>
 <script>
 (() => {
   const $ = id => document.getElementById(id);
@@ -238,7 +277,8 @@
     } catch (e) { wakeLock = null; /* refusé par le navigateur : l'inhibiteur système prend le relais */ }
   }
   document.addEventListener("visibilitychange", () => { if (wantWake) updateWakeLock(true); });
-  window.domyosDebug = () => ({ wantWake, wakeLockHeld: !!wakeLock, audio: audio && audio.state, status });   // console / tests
+  window.domyosDebug = () => ({ wantWake, wakeLockHeld: !!wakeLock, audio: audio && audio.state, status,
+                                video: videoState && { session: videoSession, t: vid.currentTime, paused: vid.paused, ready: vid.readyState } });   // console / tests
 
   // ── données ────────────────────────────────────────────────────────────────
   function onData(d) {
@@ -386,6 +426,61 @@
   });
   setTimeout(() => { try { audioCtx(); } catch (e) {} }, 1500);   // affiche 🔇 dès le chargement si bloqué
 
+  // ── vidéo Jellyfin (hls.js) : le serveur tient l'état, le dashboard obéit et renvoie sa position ──
+  const vid = $("vid");
+  let hls = null, videoSession = null, videoState = null, progressTimer = null;
+  const videoTitle = it => !it ? "" : it.series ? `${it.series} · S${pad(it.season || 0)}E${pad(it.episode || 0)} · ${it.name}` : it.name;
+  function onVideo(m) {
+    if (!m.active) {
+      if (hls) { hls.destroy(); hls = null; }
+      vid.pause(); vid.removeAttribute("src"); videoSession = null; videoState = null;
+      clearInterval(progressTimer); progressTimer = null;
+      document.body.classList.remove("video"); $("video").classList.remove("paused", "err");
+      setTimeout(requestDraw, 50);
+      return;
+    }
+    videoState = m;
+    document.body.classList.add("video");
+    if (m.play_session_id !== videoSession) {                 // nouveau flux (ou sous-titres changés)
+      videoSession = m.play_session_id;
+      $("video").classList.remove("err"); $("vid-caption").textContent = videoTitle(m.item);
+      if (hls) { hls.destroy(); hls = null; }
+      if (window.Hls && Hls.isSupported()) {
+        hls = new Hls({ startPosition: m.position_s || -1, maxBufferLength: 60 });
+        hls.on(Hls.Events.MANIFEST_PARSED, () => { if (videoState && videoState.playing) vid.play().catch(() => {}); });
+        hls.on(Hls.Events.ERROR, (_, d) => {
+          if (!d.fatal) return;
+          if (d.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();        // Jellyfin transcode encore : on insiste
+          else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+          else { $("video").classList.add("err"); $("vid-caption").textContent = `vidéo : ${d.details}`; }
+        });
+        hls.loadSource(m.src); hls.attachMedia(vid);
+      } else {
+        vid.src = m.src;                                           // navigateur avec HLS natif (Safari)
+      }
+      if (!progressTimer) progressTimer = setInterval(sendProgress, 3000);
+    } else {
+      $("vid-caption").textContent = videoTitle(m.item);
+    }
+    vid.volume = (m.volume ?? 100) / 100;
+    if (m.playing && vid.paused) vid.play().catch(() => {});
+    else if (!m.playing && !vid.paused) vid.pause();
+    setTimeout(requestDraw, 50);
+  }
+  function onVideoCmd(m) {
+    if (!videoSession) return;
+    if (m.action === "seek") vid.currentTime = m.position_s;
+    else if (m.action === "volume") vid.volume = m.volume / 100;
+  }
+  function sendProgress() {
+    if (!videoSession) return;
+    sendCmd({ type: "video_progress", position_s: vid.currentTime, paused: vid.paused,
+              duration_s: isFinite(vid.duration) ? vid.duration : null });
+  }
+  vid.addEventListener("pause", () => $("video").classList.add("paused"));
+  vid.addEventListener("play", () => $("video").classList.remove("paused"));
+  vid.addEventListener("ended", () => { if (videoSession) sendCmd({ type: "video_ended" }); });
+
   function onSession(m) {
     if (m.event === "started") { sessionPower = []; setVal("v-avg", "—", "W"); }
     if (m.event === "stopped" && m.stats) {
@@ -489,6 +584,8 @@
       else if (m.type === "session") onSession(m);
       else if (m.type === "program") onProgram(m);
       else if (m.type === "machine_status") onMachineStatus(m);
+      else if (m.type === "video") onVideo(m);
+      else if (m.type === "video_cmd") onVideoCmd(m);
     };
     ws.onclose = () => { serverUp = false; renderStatus(); setTimeout(connect, 2000); };
     ws.onerror = () => ws.close();

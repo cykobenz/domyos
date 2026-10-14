@@ -39,11 +39,13 @@ Domyos/
 ├── programs.json      ← presets proposés par le dashboard (touche P) et `trainer.py run <id>`
 ├── domyos.sh          ← lanceur : start | kiosk | control | stop | stop-all | status | logs | install
 ├── ha.py              ← Home Assistant : MQTT Discovery + état 1 Hz + webhook fin de séance
+├── video.py           ← Jellyfin : catalogue, lecture HLS (proxy /jf/), télécommande WS, reprise / « vu »
 ├── config.py          ← secrets locaux (MQTT, webhook) — NON versionné ; modèle : config.example.py
 ├── .gitignore         ← __pycache__, *.db*, config.py, .env, *.odt
 ├── dashboard/
-│   ├── index.html     ← dashboard TV (HTML/Canvas2D, sans dépendance), servi sur http://localhost:8765/
-│   └── control.html   ← page de contrôle (bureau, souris) : composer / armer / arrêter une séance, presets, historique
+│   ├── index.html     ← dashboard TV (HTML/Canvas2D), servi sur http://localhost:8765/ ; lecteur vidéo hls.js
+│   ├── control.html   ← page de contrôle (bureau, souris) : séances, presets, historique, télécommande vidéo
+│   └── vendor/hls.min.js ← hls.js 1.6.13 (lecture HLS dans Chromium, copie locale)
 └── trainer.py         ← client CLI des programmes : list | run <preset|type|json> [--detach] | stop | probe | set
 ```
 
@@ -149,6 +151,27 @@ Domyos/
     premier coup de rame** (ProgramRunner). Validé en démo.
   - Rappel sonore molette **seulement en séance** (`running` + programme démarré), plus
     de bips en pause / prêt / hors ligne.
+- ✅ **Vidéo Jellyfin pendant la séance (14/10 soir)** : `video.py` (activé dès que `config.py`
+  définit `JELLYFIN_URL` + `JELLYFIN_API_KEY`, `--no-video` pour couper). Le serveur tient
+  l'état de lecture ; le dashboard passe en mode vidéo (`body.video` : lecteur 16:9 en haut à
+  gauche, 4 grandes tuiles en 2×2 à droite, petites tuiles + graphes en bas, bandeau PAUSE
+  réduit en pastille) et lit le flux HLS avec **hls.js** (copie locale `dashboard/vendor/`) ;
+  il renvoie sa position toutes les 3 s (`video_progress`) et `video_ended` en fin d'épisode
+  → épisode suivant automatique (`/Shows/NextUp`). Jellyfin **transcode tout** en H.264/AAC
+  HLS (avi/mpeg4, mkv HEVC, ac3/dts… ; VAAPI côté serveur, ~1 s pour démarrer, saut de 60 s
+  en ~2 s) avec sous-titres incrustés (profil `SubtitleProfiles Method=Encode`). Proxy
+  `/jf/{videos/…, Items/…/Images/…}` : la clé d'API reste côté serveur (Jellyfin 12 refuse
+  `?api_key=` en query ; en-tête `Authorization: MediaBrowser Token=…` obligatoire ; aiohttp
+  sans brotli → `Accept-Encoding: gzip, deflate`). Une clé d'API n'étant liée à aucun
+  utilisateur, les rapports `/Sessions/Playing*` ne suffisent pas pour la reprise / le « vu » :
+  `video.py` écrit `/UserItems/{id}/UserData` (position + LastPlayedDate) toutes les 10 s et
+  `/UserPlayedItems/{id}` au-delà de 92 % (`JELLYFIN_USER` = nom, sinon premier admin).
+  Page de contrôle : carte « Vidéo · Jellyfin » (Reprendre / À suivre, recherche, épisodes
+  d'une série, lecture, pause, −15 s / +30 s, volume, sous-titres, arrêter).
+  WS : `video_play {item_id, position_s?, subtitle_index?}`, `video_pause`, `video_resume`,
+  `video_stop`, `video_seek {delta_s|position_s}`, `video_volume` ; messages `{"type":"video",…}`
+  et `{"type":"video_cmd", action:"seek"|"volume"}`. REST `/api/video/{home,search?q=,episodes/{id}}`.
+  Validé en démo (Playwright, Father Ted S01E01 → S01E02).
 - ⚠️ **La résistance du Woodrower n'est pas motorisée.** Validé en réel : la console
   accepte Set Target Resistance à l'arrêt (indication `success`, niveau reflété dans
   Rower Data) mais le refuse en séance (`invalid_parameter`) et l'effort ne change
@@ -180,6 +203,10 @@ Domyos/
 
 ## Prochaine session
 
+0. **Valider en réel la vidéo Jellyfin** (`./domyos.sh stop-all` puis `start`, F5 dans les
+   fenêtres si l'ancienne page persiste) : lancer un épisode depuis la carte « Vidéo » de la
+   page de contrôle, vérifier image + son sur DP-1, pause / saut / sous-titres, enchaînement
+   d'épisodes, reprise dans Jellyfin ; charge CPU/VAAPI du serveur Jellyfin.
 1. **Valider en réel le lot « confort » v2** : `./domyos.sh start` → kiosque DP-1 + fenêtre
    de contrôle HDMI-1 ; armer une séance à la souris depuis le bureau, s'asseoir, ramer :
    le programme doit démarrer au premier coup ; bandeau, étape suivante, fin de programme,
@@ -339,6 +366,12 @@ curl localhost:8765/api/programs
 # Control Point (tests ; la résistance reste manuelle)
 python3 trainer.py probe
 python3 trainer.py set 5
+
+# Vidéo Jellyfin (config.py : JELLYFIN_URL, JELLYFIN_API_KEY, JELLYFIN_USER)
+python3 server.py --no-video               # sans Jellyfin
+curl "localhost:8765/api/video/home"       # Reprendre / À suivre
+curl "localhost:8765/api/video/search?q=ted"
+curl localhost:8765/api/state | python3 -m json.tool | grep -A3 '"video"'
 
 # Home Assistant
 python3 server.py --no-ha                  # sans MQTT ni webhook
