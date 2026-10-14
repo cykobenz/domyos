@@ -8,3 +8,4 @@ config.py
 # documents de travail contenant des secrets
 *.odt
 *.pdf
+.playwright-mcp/

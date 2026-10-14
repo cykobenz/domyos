@@ -218,9 +218,10 @@ async def cmd_run(a):
         print(f"  {i:2d}. {s['label']:<18s} {s['duration_s']:4d} s  R{s['resistance']}")
 
     async with Trainer(a.server) as t:
-        if not t.state.get("connected"):
-            sys.exit("Le rameur n'est pas connecté au serveur.")
         await t.check_server()
+        if not t.state.get("connected"):
+            print("\nEn attente du rameur (allume-le, la connexion est automatique)…")
+            await t.wait_for(lambda m: m["type"] == "status" and m.get("connected"), timeout=None)
 
         async def publish(idx, remaining, active=True):
             await t.program_state(
@@ -262,7 +263,7 @@ async def cmd_run(a):
                     step_start = elapsed
             print("\n✅ Programme terminé.")
             await t.program_state(active=False)
-            if a.lo:
+            if a.lo and not a.no_send:
                 await t.set_resistance(a.lo, a.encoding)
         except (KeyboardInterrupt, asyncio.CancelledError):
             await t.program_state(active=False)

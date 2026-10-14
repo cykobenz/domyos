@@ -33,6 +33,7 @@ import asyncio
 import json
 import math
 import random
+import shutil
 import sqlite3
 import sys
 from datetime import datetime, timezone
@@ -65,11 +66,52 @@ def log(tag: str, msg: str) -> None:
     print(f"{datetime.now().strftime('%H:%M:%S')} [{tag}] {msg}", flush=True)
 
 
+class ScreenInhibitor:
+    """
+    Empêche la mise en veille de l'écran tant que le rameur est allumé
+    (gnome-session-inhibit --inhibit-only, tué dès que le rameur passe hors ligne).
+    Complète le Screen Wake Lock du dashboard. Désactivable avec --no-inhibit.
+    Le processus enfant reçoit SIGTERM si server.py meurt (PR_SET_PDEATHSIG),
+    pour ne jamais laisser un inhibiteur orphelin bloquer la veille.
+    """
+
+    @staticmethod
+    def _die_with_parent() -> None:
+        try:
+            import ctypes, signal
+            ctypes.CDLL("libc.so.6", use_errno=True).prctl(1, signal.SIGTERM)  # PR_SET_PDEATHSIG = 1
+        except Exception:
+            pass
+
+    def __init__(self):
+        self.cmd = shutil.which("gnome-session-inhibit")
+        self.proc: asyncio.subprocess.Process | None = None
+        if not self.cmd:
+            log("VEILLE", "gnome-session-inhibit introuvable : pas d'anti-veille côté système")
+
+    async def set(self, active: bool) -> None:
+        if not self.cmd:
+            return
+        if active and (self.proc is None or self.proc.returncode is not None):
+            self.proc = await asyncio.create_subprocess_exec(
+                self.cmd, "--inhibit", "idle", "--app-id", "domyos-server",
+                "--reason", "Séance de rameur", "--inhibit-only",
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+                preexec_fn=self._die_with_parent)
+            log("VEILLE", "écran maintenu éveillé (rameur allumé)")
+        elif not active and self.proc is not None and self.proc.returncode is None:
+            self.proc.terminate()
+            await self.proc.wait()
+            self.proc = None
+            log("VEILLE", "anti-veille levé (rameur éteint)")
+
+
 class RowerServer:
-    def __init__(self, db_path: Path = DB_PATH, ha=None):
+    def __init__(self, db_path: Path = DB_PATH, ha=None, inhibitor: ScreenInhibitor | None = None):
         self.db_path = db_path
         self.logger = SessionLogger(db_path)
         self.ha = ha                         # ha.HomeAssistant ou None
+        self.inhibitor = inhibitor           # ScreenInhibitor ou None
         self.clients: set[web.WebSocketResponse] = set()
         self.ble: BleakClient | None = None
         self.connected = False
@@ -119,6 +161,8 @@ class RowerServer:
     async def broadcast(self, msg: dict) -> None:
         if self.ha:
             self.ha.handle(msg)
+        if self.inhibitor and msg.get("type") == "status":
+            await self.inhibitor.set(bool(msg.get("connected")))
         if not self.clients:
             return
         text = json.dumps(msg)
@@ -416,6 +460,8 @@ class RowerServer:
             self.logger.close()
             if self.ha:
                 await self.ha.stop()
+            if self.inhibitor:
+                await self.inhibitor.set(False)
             log("SRV", "arrêté")
 
 
@@ -423,6 +469,7 @@ if __name__ == "__main__":
     # --demo : rameur simulé, sessions écrites dans demo.db (pas dans domyos.db)
     # --port N : port HTTP/WS (défaut 8765)
     # --no-ha : sans Home Assistant ; --ha : HA aussi en démo (device séparé « Rameur démo »)
+    # --no-inhibit : ne pas bloquer la mise en veille de l'écran quand le rameur est allumé
     demo = "--demo" in sys.argv
     db = Path(__file__).parent / "demo.db" if demo else DB_PATH
     port = int(sys.argv[sys.argv.index("--port") + 1]) if "--port" in sys.argv else PORT
@@ -433,7 +480,8 @@ if __name__ == "__main__":
         ha = HomeAssistant(cfg, demo=demo)
     elif cfg is None:
         log("HA", "config.py absent → intégration Home Assistant désactivée")
+    inhibitor = None if "--no-inhibit" in sys.argv else ScreenInhibitor()
     try:
-        asyncio.run(RowerServer(db, ha).run(port))
+        asyncio.run(RowerServer(db, ha, inhibitor).run(port))
     except KeyboardInterrupt:
         pass

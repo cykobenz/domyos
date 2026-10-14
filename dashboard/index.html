@@ -186,7 +186,26 @@
     $("session-text").textContent = status.session_id ? `· session #${status.session_id}` : "";
     banner.className = cls ? `show ${cls}` : "";
     $("banner-big").textContent = big; $("banner-sub").textContent = sub;
+    updateWakeLock(serverUp && status.connected);
   }
+
+  // ── anti-veille : Screen Wake Lock tant que le rameur est allumé ──────────
+  // (server.py ajoute en plus un inhibiteur GNOME côté système, voir ScreenInhibitor)
+  let wakeLock = null, wantWake = false;
+  async function updateWakeLock(want) {
+    wantWake = want;
+    if (!("wakeLock" in navigator)) return;
+    try {
+      if (want && !wakeLock && document.visibilityState === "visible") {
+        wakeLock = await navigator.wakeLock.request("screen");
+        wakeLock.addEventListener("release", () => { wakeLock = null; });
+      } else if (!want && wakeLock) {
+        await wakeLock.release(); wakeLock = null;
+      }
+    } catch (e) { wakeLock = null; /* refusé par le navigateur : l'inhibiteur système prend le relais */ }
+  }
+  document.addEventListener("visibilitychange", () => { if (wantWake) updateWakeLock(true); });
+  window.domyosDebug = () => ({ wantWake, wakeLockHeld: !!wakeLock, status });   // console / tests
 
   // ── données ────────────────────────────────────────────────────────────────
   function onData(d) {

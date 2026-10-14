@@ -101,6 +101,13 @@ Domyos/
   webhook HTTP 200. Sans `config.py` ou avec `--no-ha` : désactivé.
   `status.ha_connected` exposé dans l'API/WS. `python3 ha.py cleanup-demo` retire le
   device démo de HA.
+- ✅ **Anti-veille (14/10)** : l'écran du dashboard (3ᵉ écran PC, GNOME idle-delay 5 min)
+  se mettait en veille en séance. Deux couches : Screen Wake Lock dans le dashboard tant
+  que serveur et rameur sont joignables, et `ScreenInhibitor` dans `server.py`
+  (`gnome-session-inhibit --inhibit idle --inhibit-only`, lancé quand le rameur se
+  connecte, tué quand il passe hors ligne, PR_SET_PDEATHSIG pour ne jamais laisser
+  d'orphelin). `--no-inhibit` pour désactiver. `window.domyosDebug()` dans la console du
+  dashboard montre l'état du verrou.
 - ⚠️ **La résistance du Woodrower n'est pas motorisée.** Validé en réel : la console
   accepte Set Target Resistance à l'arrêt (indication `success`, niveau reflété dans
   Rower Data) mais le refuse en séance (`invalid_parameter`) et l'effort ne change
@@ -116,14 +123,24 @@ Domyos/
   créée par Cowork dans le dashboard « Maison » (cartes Rameur / Dernière séance /
   Historique ApexCharts — les cartes Apex affichent encore « Erreur de configuration »,
   à revoir côté YAML avec Cowork).
-- Non testé aujourd'hui : dashboard sur la télé en kiosque + `trainer.py run …` en
-  conditions (bandeau consigne, alerte molette, bip).
+- Session 17 (5 min, 766 m) avec le dashboard en kiosque Brave sur le 3ᵉ écran : OK, mais
+  `trainer.py run intervals …` n'a jamais atteint le serveur : lancé avant la connexion
+  BLE, il quittait aussitôt avec « Le rameur n'est pas connecté ». Corrigé : il attend
+  désormais le rameur (« En attente du rameur… »), puis le premier coup.
+- ✅ **Session 18 (6 min 15 s, 947 m) avec programme intervals 60/30×4/60 `--no-send`** :
+  les 10 étapes se sont enchaînées à la seconde sur le chrono du rameur, molette suivie
+  de 2 à 5 (cible atteinte en 4 à 11 s), anti-veille actif puis relâché à l'extinction,
+  HA alimenté, trainer déconnecté proprement. Puissance moyenne par niveau : R2 ≈ 41 W,
+  R5 ≈ 51 W. Corrigé au passage : le trainer n'envoie plus de consigne finale avec
+  `--no-send`.
+- 📌 **Découverte** : la console notifie chaque cran de molette via Fitness Machine
+  Status `0x07` (target_resistance_changed, param = niveau × 10) — plus réactif que le
+  champ résistance du flux Rower Data pour l'alerte molette du dashboard.
 
 ## Prochaine session
 
-1. **Entraînement avec programme** : dashboard sur la télé (kiosque Brave avec autoplay)
-   + `trainer.py run intervals …`. Vérifier bandeau consigne, alerte molette + bip.
-   Ajuster si besoin : taille des chiffres, timeout idle (5 min).
+1. Retour d'expérience de la session 18 à recueillir : lisibilité du bandeau, alerte
+   molette et bip entendus ou non, taille des chiffres. Ajuster si besoin.
 2. Côté HA (Cowork) : corriger les cartes ApexCharts de la vue « Santé » ;
    `python3 ha.py cleanup-demo` pour retirer le device « Rameur démo ».
 3. Hygiène : `git init` (`.gitignore` et `config.example.py` existent déjà) ; sortir
