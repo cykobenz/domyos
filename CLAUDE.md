@@ -149,7 +149,11 @@ Domyos/
     liste d'aperçu se modifie à la main (nom, durée mm:ss, molette, ↑↓ déplacer, ⧉
     dupliquer, ✕ supprimer, « + Ajouter une étape », « Vider ») ; la première retouche
     passe en onglet « Libre » (type `steps`, les champs du générateur ne s'appliquent
-    plus) ; bouton « Modifier » sur chaque preset pour le charger dans le composeur. Un programme armé **démarre tout seul au
+    plus) ; bouton « Modifier » sur chaque preset pour le charger dans le composeur.
+    **Molette optionnelle** : une étape sans molette (`resistance: null`, onglet « Libre »
+    par défaut : « Rame libre » 20 min) n'affiche aucune consigne, ne déclenche ni alerte
+    ni bip quand on change de résistance (dashboard : `program.resistance` nul → pas de
+    mismatch ; `programs.build` normalise vide / 0 → None). Un programme armé **démarre tout seul au
     premier coup de rame** (ProgramRunner). Validé en démo.
   - Rappel sonore molette **seulement en séance** (`running` + programme démarré), plus
     de bips en pause / prêt / hors ligne.

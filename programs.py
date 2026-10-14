@@ -3,7 +3,7 @@ Domyos Woodrower — Catalogue et construction des programmes d'entraînement
 
 Un programme est une liste d'étapes {"label", "duration_s", "resistance"} ;
 la résistance est la position de molette à afficher en consigne (le Woodrower
-n'est pas motorisé). Les presets vivent dans `programs.json` (modifiable sans
+n'est pas motorisé) ; None = molette libre (pas de consigne, pas d'alerte). Les presets vivent dans `programs.json` (modifiable sans
 toucher au code) ; `build()` les transforme en étapes.
 
     from programs import presets, build, build_from_json
@@ -61,8 +61,10 @@ def build(spec: dict) -> tuple[str, list[dict]]:
         default_name = "Programme"
     else:
         raise ValueError(f"type de programme inconnu : {kind}")
+    # resistance absente / vide / 0 → None : étape « molette libre » (aucune consigne, pas d'alerte)
     steps = [{"label": str(s.get("label", f"Étape {i}")), "duration_s": int(s["duration_s"]),
-              "resistance": int(s["resistance"])} for i, s in enumerate(steps, 1)]
+              "resistance": int(s["resistance"]) if s.get("resistance") not in (None, "", 0, "0") else None}
+             for i, s in enumerate(steps, 1)]
     # étapes nulles (ex. warmup 0) retirées
     steps = [s for s in steps if s["duration_s"] > 0]
     if not steps:

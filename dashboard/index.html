@@ -324,12 +324,13 @@
     el.classList.add("show");
     $("p-name").textContent = m.name;
     $("p-step").textContent = m.started ? `${m.label} · ${m.step}/${m.steps}` : `${m.label} · démarre au premier coup`;
-    $("p-target").textContent = `cible R${m.resistance}`;
-    $("p-next").textContent = m.next_label ? `ensuite ${m.next_label} R${m.next_resistance}` : "dernière étape";
+    $("p-target").textContent = m.resistance ? `cible R${m.resistance}` : "molette libre";
+    $("p-next").textContent = m.next_label ? `ensuite ${m.next_label}${m.next_resistance ? ` R${m.next_resistance}` : ""}` : "dernière étape";
     $("p-remaining").textContent = fmtTime(m.remaining_s);
     $("p-bar").style.width = `${Math.min(100, 100 * m.elapsed_s / m.total_s)}%`;
-    if (lastTarget !== null && m.resistance !== lastTarget) beep(m.resistance > lastTarget ? 2 : 1);
-    lastTarget = m.resistance;
+    // bip au changement de consigne (montée / descente) ; une étape « molette libre » ne bipe pas
+    if (lastTarget !== null && m.resistance && m.resistance !== lastTarget) beep(m.resistance > lastTarget ? 2 : 1);
+    lastTarget = m.resistance || null;
     checkMismatch();
   }
   // La console notifie chaque cran de molette (Fitness Machine Status 0x07, niveau × 10) :
@@ -344,7 +345,7 @@
   // Rappel sonore toutes les 10 s tant que la molette n'est pas sur la cible
   let mismatchTimer = null;
   function checkMismatch() {
-    const bad = !!program && actualResistance != null && actualResistance !== program.resistance;
+    const bad = !!program && !!program.resistance && actualResistance != null && actualResistance !== program.resistance;
     $("program").classList.toggle("mismatch", bad);
     $("p-todo").textContent = bad ? `→ règle la molette sur ${program.resistance}` : "";
     // rappel seulement pendant qu'on rame (pas en pause, prêt ou hors ligne)

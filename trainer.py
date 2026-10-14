@@ -207,7 +207,7 @@ async def cmd_run(a):
     total = sum(s["duration_s"] for s in steps)
     print(f"Programme « {name} » — {len(steps)} étapes, {total // 60} min {total % 60:02d} s")
     for i, s in enumerate(steps, 1):
-        print(f"  {i:2d}. {s['label']:<18s} {s['duration_s']:4d} s  R{s['resistance']}")
+        print(f"  {i:2d}. {s['label']:<18s} {s['duration_s']:4d} s  {'R' + str(s['resistance']) if s['resistance'] else 'molette libre'}")
 
     async with Trainer(a.server) as t:
         await t.program_start(name, steps)
@@ -229,9 +229,10 @@ async def cmd_run(a):
                 if key != shown:
                     shown = key
                     if m.get("started"):
-                        print(f"→ {m['label']} ({m['step']}/{m['steps']}) : consigne R{m['resistance']}"
-                              f" pendant {m['remaining_s']} s"
-                              + (f" — ensuite {m['next_label']} R{m['next_resistance']}" if m.get("next_label") else ""))
+                        print(f"→ {m['label']} ({m['step']}/{m['steps']}) : "
+                              + (f"consigne R{m['resistance']}" if m.get("resistance") else "molette libre")
+                              + f" pendant {m['remaining_s']} s"
+                              + (f" — ensuite {m['next_label']}" + (f" R{m['next_resistance']}" if m.get("next_resistance") else "") if m.get("next_label") else ""))
         except (KeyboardInterrupt, asyncio.CancelledError):
             await t.ws.send_json({"type": "program_stop"})
             print("\nProgramme interrompu.")
