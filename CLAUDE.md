@@ -139,12 +139,10 @@ Domyos/
 
 ## Prochaine session
 
-1. Retour session 18 : écran lisible, **bip jamais entendu**. Bip refait (14/10 soir) :
+1. ~~Retour session 18~~ : écran lisible ; bip refait (14/10 soir) et **validé** (touche B) :
    carré 880 Hz × 2 à la montée / 440 Hz long à la descente, gain 0,4 ; indicateur
    « 🔇 son bloqué » dans la barre si l'AudioContext est suspendu (flag autoplay absent),
-   débloqué par un clic ; **touche B = bip de test** en kiosque. À vérifier en conditions :
-   appuyer sur B dans le kiosque, puis au besoin contrôler la sortie son choisie pour
-   Brave (le 3ᵉ écran HDMI peut capter la sortie audio).
+   débloqué par un clic ; **touche B = bip de test** en kiosque.
 2. Côté HA (Cowork) : corriger les cartes ApexCharts de la vue « Santé » ;
    `python3 ha.py cleanup-demo` pour retirer le device « Rameur démo ».
 3. Hygiène : `git init` (`.gitignore` et `config.example.py` existent déjà) ; sortir
