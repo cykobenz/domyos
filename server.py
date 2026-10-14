@@ -562,8 +562,16 @@ class RowerServer:
             return web.FileResponse(DASHBOARD_DIR / "index.html")
         return web.Response(text="Domyos server — WebSocket sur /ws, API sur /api/state\n")
 
+    @staticmethod
+    async def _no_cache(request, response):
+        # Chromium garde sinon les pages du dashboard en cache heuristique (pas de Cache-Control)
+        # → après une mise à jour, le kiosque / la fenêtre de contrôle affichaient l'ancienne version
+        if not request.path.startswith("/api/") and request.path != "/ws":
+            response.headers["Cache-Control"] = "no-cache"
+
     def build_app(self) -> web.Application:
         app = web.Application()
+        app.on_response_prepare.append(self._no_cache)
         app.router.add_get("/", self.index)
         app.router.add_get("/ws", self.ws_handler)
         app.router.add_get("/api/state", self.api_state)
