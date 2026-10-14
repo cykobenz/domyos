@@ -63,6 +63,27 @@
   @keyframes pulse { 50% { opacity: .35; } }
   #program .remaining { margin-left: auto; font-size: 4.5vh; font-weight: 600; }
   #program .bar { position: absolute; left: 0; bottom: 0; height: .8vh; background: var(--series-power); width: 0; transition: width .3s linear; }
+  #program .next { color: var(--text-muted); font-size: 2.4vh; }
+
+  /* ── menu programmes (touche P) ── */
+  #menu {
+    display: none; position: fixed; inset: 0; z-index: 20; background: rgba(17,17,16,.92);
+    align-items: center; justify-content: center; flex-direction: column; gap: 2vh;
+  }
+  #menu.show { display: flex; }
+  #menu h2 { margin: 0; font-size: 4vh; font-weight: 600; }
+  #menu ul { list-style: none; margin: 0; padding: 0; width: min(70vw, 1100px); }
+  #menu li {
+    display: grid; grid-template-columns: 6vh 1fr auto; align-items: center; gap: 2vw;
+    padding: 1.6vh 2vw; margin-bottom: 1vh; border-radius: var(--radius);
+    background: var(--surface-1); border: 2px solid var(--border); font-size: 3vh; cursor: pointer;
+  }
+  #menu li.sel { border-color: var(--series-power); background: var(--surface-2); }
+  #menu li .key { color: var(--series-power); font-weight: 700; font-size: 3.6vh; }
+  #menu li .desc { display: block; color: var(--text-muted); font-size: 2.2vh; margin-top: .4vh; }
+  #menu li .dur { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+  #menu .hint { color: var(--text-muted); font-size: 2.4vh; }
+  #menu .stop { color: var(--status-warning); }
 
   /* ── tuiles ── */
   .tiles { display: grid; gap: 1.5vw; }
@@ -127,6 +148,7 @@
   <span class="step" id="p-step"></span>
   <span class="target" id="p-target"></span>
   <span class="todo" id="p-todo"></span>
+  <span class="next" id="p-next"></span>
   <span class="remaining" id="p-remaining"></span>
   <div class="bar" id="p-bar"></div>
 </section>
@@ -158,6 +180,12 @@
 
 <div id="banner"><div class="big" id="banner-big"></div><div class="sub" id="banner-sub"></div></div>
 
+<div id="menu">
+  <h2>Programmes</h2>
+  <ul id="menu-list"></ul>
+  <div class="hint">chiffre ou ↑↓ + Entrée : lancer · <span class="stop">S : arrêter le programme en cours</span> · Échap : fermer</div>
+</div>
+
 <script>
 (() => {
   const $ = id => document.getElementById(id);
@@ -166,6 +194,8 @@
   let status = { connected: false, machine_state: "offline", session_id: null };
   let sessionPower = [];             // puissances vivantes de la session pour la moyenne
   let serverUp = false;
+  let ws = null;
+  const sendCmd = obj => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); };
 
   // ── helpers ────────────────────────────────────────────────────────────────
   const pad = n => String(n).padStart(2, "0");
@@ -183,7 +213,7 @@
     if (!serverUp)                                { text = "serveur injoignable"; cls = "offline"; big = "SERVEUR INJOIGNABLE"; sub = "server.py est-il lancé ?"; }
     else if (!status.connected)                   { text = "rameur hors ligne"; cls = "offline"; big = "RAMEUR HORS LIGNE"; sub = "Allume le rameur, la connexion est automatique"; }
     else if (status.machine_state === "paused")   { text = "pause"; dot.classList.add("paused"); cls = "paused"; big = "PAUSE"; sub = "Reprends quand tu veux"; }
-    else if (status.machine_state === "idle")     { text = "prêt"; dot.classList.add("on"); cls = "idle"; big = "PRÊT"; sub = "Le premier coup de rame démarre la séance"; }
+    else if (status.machine_state === "idle")     { text = "prêt"; dot.classList.add("on"); cls = "idle"; big = "PRÊT"; sub = "Le premier coup de rame démarre la séance · P : choisir un programme"; }
     else                                          { text = "séance en cours"; dot.classList.add("on"); }
     $("state-text").textContent = text;
     $("session-text").textContent = status.session_id ? `· session #${status.session_id}` : "";
@@ -236,27 +266,80 @@
   }
 
   // ── programme : consigne de résistance vs molette ──────────────────────────
-  let program = null, lastTarget = null, actualResistance = null;
+  let program = null, lastTarget = null, actualResistance = null, doneTimer = null;
   function onProgram(m) {
     const el = $("program");
     program = m.active ? m : null;
-    if (!program) { el.classList.remove("show", "mismatch"); lastTarget = null; return; }
+    if (!program) {
+      el.classList.remove("show", "mismatch"); lastTarget = null; checkMismatch();
+      if (m.finished) {                        // bandeau « terminé » 8 s + bip
+        beep(2);
+        $("banner").className = "show idle";
+        $("banner-big").textContent = "PROGRAMME TERMINÉ"; $("banner-sub").textContent = m.name || "";
+        clearTimeout(doneTimer); doneTimer = setTimeout(renderStatus, 8000);
+      }
+      return;
+    }
+    clearTimeout(doneTimer);
     el.classList.add("show");
     $("p-name").textContent = m.name;
-    $("p-step").textContent = `${m.label} · ${m.step}/${m.steps}`;
+    $("p-step").textContent = m.started ? `${m.label} · ${m.step}/${m.steps}` : `${m.label} · démarre au premier coup`;
     $("p-target").textContent = `cible R${m.resistance}`;
+    $("p-next").textContent = m.next_label ? `ensuite ${m.next_label} R${m.next_resistance}` : "dernière étape";
     $("p-remaining").textContent = fmtTime(m.remaining_s);
     $("p-bar").style.width = `${Math.min(100, 100 * m.elapsed_s / m.total_s)}%`;
     if (lastTarget !== null && m.resistance !== lastTarget) beep(m.resistance > lastTarget ? 2 : 1);
     lastTarget = m.resistance;
     checkMismatch();
   }
+  // La console notifie chaque cran de molette (Fitness Machine Status 0x07, niveau × 10) :
+  // plus réactif que le champ résistance du flux de données.
+  function onMachineStatus(m) {
+    if (m.name === "target_resistance_changed" && m.param != null) {
+      actualResistance = Math.round(m.param / 10);
+      $("resistance-text").textContent = actualResistance ? `résistance ${actualResistance}` : "";
+      checkMismatch();
+    }
+  }
+  // Rappel sonore toutes les 10 s tant que la molette n'est pas sur la cible
+  let mismatchTimer = null;
   function checkMismatch() {
-    if (!program) return;
-    const bad = actualResistance != null && actualResistance !== program.resistance;
+    const bad = !!program && actualResistance != null && actualResistance !== program.resistance;
     $("program").classList.toggle("mismatch", bad);
     $("p-todo").textContent = bad ? `→ règle la molette sur ${program.resistance}` : "";
+    if (bad && !mismatchTimer) mismatchTimer = setInterval(() => beep(3, 660), 10000);
+    if (!bad && mismatchTimer) { clearInterval(mismatchTimer); mismatchTimer = null; }
   }
+
+  // ── menu programmes : P ouvre, chiffre / flèches + Entrée lance, S arrête, Échap ferme ──
+  let menuItems = [], menuSel = 0;
+  async function openMenu() {
+    try {
+      const r = await fetch("/api/programs"); menuItems = await r.json();
+    } catch (e) { menuItems = []; }
+    menuSel = 0; renderMenu(); $("menu").classList.add("show");
+  }
+  function closeMenu() { $("menu").classList.remove("show"); }
+  function renderMenu() {
+    const ul = $("menu-list"); ul.innerHTML = "";
+    menuItems.slice(0, 9).forEach((p, i) => {
+      const li = document.createElement("li");
+      if (i === menuSel) li.classList.add("sel");
+      const d = p.duration_s || 0;
+      li.innerHTML = `<span class="key">${i + 1}</span><span>${p.name}<span class="desc">${p.desc || ""}</span></span>` +
+                     `<span class="dur">${Math.floor(d / 60)} min${d % 60 ? ` ${pad(d % 60)} s` : ""}</span>`;
+      li.onclick = () => startProgram(i);
+      ul.appendChild(li);
+    });
+    if (!menuItems.length) ul.innerHTML = "<li><span></span><span>aucun programme (programs.json ?)</span><span></span></li>";
+  }
+  function startProgram(i) {
+    const p = menuItems[i]; if (!p) return;
+    sendCmd({ type: "program_start", preset: p.id, source: "dashboard" });
+    closeMenu();
+  }
+  function stopProgram() { sendCmd({ type: "program_stop" }); closeMenu(); }
+  const menuOpen = () => $("menu").classList.contains("show");
   // bip court (Web Audio, sans fichier) — Brave : --autoplay-policy=no-user-gesture-required
   // Sans le flag, Chromium crée l'AudioContext « suspended » jusqu'au premier geste :
   // on l'indique dans la barre (🔇) et un clic / la touche B débloque le son.
@@ -268,15 +351,15 @@
     audio.onstatechange = () => { $("audio-warn").hidden = audio.state === "running"; };
     return audio;
   }
-  function beep(n) {
+  function beep(n, freq) {
     try {
       const ctx = audioCtx();
       // montée (n=2) : deux bips aigus ; descente (n=1) : un bip grave plus long
-      const freq = n === 1 ? 440 : 880, dur = n === 1 ? 0.45 : 0.22;
+      const f = freq || (n === 1 ? 440 : 880), dur = n === 1 ? 0.45 : 0.22;
       for (let i = 0; i < n; i++) {
         const o = ctx.createOscillator(), g = ctx.createGain();
         o.connect(g); g.connect(ctx.destination);
-        o.type = "square"; o.frequency.value = freq;
+        o.type = "square"; o.frequency.value = f;
         const t0 = ctx.currentTime + i * 0.32;
         g.gain.setValueAtTime(0.4, t0); g.gain.exponentialRampToValueAtTime(0.01, t0 + dur);
         o.start(t0); o.stop(t0 + dur);
@@ -285,7 +368,20 @@
   }
   // Débloquer le son au premier geste (si le flag autoplay manque) ; B = bip de test
   window.addEventListener("click", () => audioCtx(), { once: true });
-  window.addEventListener("keydown", e => { if (e.key === "b" || e.key === "B") beep(2); });
+  window.addEventListener("keydown", e => {
+    const k = e.key;
+    if (k === "b" || k === "B") { beep(2); return; }
+    if (k === "p" || k === "P") { menuOpen() ? closeMenu() : openMenu(); return; }
+    if (k === "s" || k === "S") { stopProgram(); return; }
+    if (!menuOpen()) return;
+    if (k === "Escape") closeMenu();
+    else if (k >= "1" && k <= "9") startProgram(Number(k) - 1);
+    else if (k === "ArrowDown") { menuSel = Math.min(menuSel + 1, Math.min(menuItems.length, 9) - 1); renderMenu(); }
+    else if (k === "ArrowUp") { menuSel = Math.max(menuSel - 1, 0); renderMenu(); }
+    else if (k === "Enter") startProgram(menuSel);
+    else return;
+    e.preventDefault();
+  });
   setTimeout(() => { try { audioCtx(); } catch (e) {} }, 1500);   // affiche 🔇 dès le chargement si bloqué
 
   function onSession(m) {
@@ -382,7 +478,7 @@
 
   // ── WebSocket ──────────────────────────────────────────────────────────────
   function connect() {
-    const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
+    ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
     ws.onopen = () => { serverUp = true; renderStatus(); };
     ws.onmessage = e => {
       const m = JSON.parse(e.data);
@@ -390,6 +486,7 @@
       else if (m.type === "status") { status = m; renderStatus(); }
       else if (m.type === "session") onSession(m);
       else if (m.type === "program") onProgram(m);
+      else if (m.type === "machine_status") onMachineStatus(m);
     };
     ws.onclose = () => { serverUp = false; renderStatus(); setTimeout(connect, 2000); };
     ws.onerror = () => ws.close();

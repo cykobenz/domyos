@@ -34,12 +34,16 @@ Domyos/
 ├── scan_rower.py      ← dump des services/characteristics GATT
 ├── domyos.db          ← base SQLite (sessions + datapoints)
 ├── server.py          ← process central : BLE (reconnexion auto) + WS + API REST sur :8765
+│                         + ProgramRunner (déroule les programmes sur le chrono du rameur)
+├── programs.py        ← construction des programmes (intervals / pyramid / steady / steps)
+├── programs.json      ← presets proposés par le dashboard (touche P) et `trainer.py run <id>`
+├── domyos.sh          ← lanceur : start | kiosk | stop | stop-all | status | logs | install
 ├── ha.py              ← Home Assistant : MQTT Discovery + état 1 Hz + webhook fin de séance
 ├── config.py          ← secrets locaux (MQTT, webhook) — NON versionné ; modèle : config.example.py
 ├── .gitignore         ← __pycache__, *.db*, config.py, .env, *.odt
 ├── dashboard/
 │   └── index.html     ← dashboard TV (HTML/Canvas2D, sans dépendance), servi sur http://localhost:8765/
-└── trainer.py         ← programmes d'entraînement : client WS de server.py, pilote la résistance
+└── trainer.py         ← client CLI des programmes : list | run <preset|type|json> [--detach] | stop | probe | set
 ```
 
 ## État actuel
@@ -108,6 +112,27 @@ Domyos/
   connecte, tué quand il passe hors ligne, PR_SET_PDEATHSIG pour ne jamais laisser
   d'orphelin). `--no-inhibit` pour désactiver. `window.domyosDebug()` dans la console du
   dashboard montre l'état du verrou.
+- ✅ **Confort quotidien (14/10 soir)** :
+  - **Programmes dans le serveur** : `ProgramRunner` dans `server.py` déroule les étapes
+    sur le chrono du rameur (démarre au 1er coup, figé en pause, repart de l'étape
+    courante après reset) et diffuse `{"type":"program", …, started, next_label,
+    next_resistance}` ; `{"active":false,"finished":true}` à la fin. Commandes WS
+    `program_start` (`preset` id, ou `kind` + `params`/`steps`) et `program_stop` ;
+    `GET /api/programs`. Catalogue dans `programs.json` (éditable), construction dans
+    `programs.py`. Plus aucune commande de résistance envoyée au rameur.
+  - **Dashboard** : touche **P** = menu des programmes (chiffre ou ↑↓ + Entrée, clic),
+    **S** = arrêter, Échap = fermer ; bandeau avec « démarre au premier coup », étape
+    suivante, « PROGRAMME TERMINÉ » 8 s + bip à la fin ; alerte molette alimentée par la
+    notification `0x07` de la console (immédiate) + rappel sonore (3 bips 660 Hz) toutes
+    les 10 s tant que la molette n'est pas sur la cible.
+  - **`trainer.py`** = client CLI du runner : `list`, `run <preset|intervals|pyramid|steady|fichier.json>`
+    (suit et affiche les étapes ; `--detach` rend la main), `stop`. `--no-send` toléré (no-op).
+  - **`domyos.sh`** : `start` (serveur + kiosque Brave sur `config.KIOSK_SCREEN`, profil
+    séparé `~/.config/domyos-kiosk` pour que le flag autoplay s'applique), `kiosk`, `stop`
+    (kiosque), `stop-all`, `status`, `logs`, `install` (service systemd utilisateur
+    `domyos-server`, démarre à l'ouverture de session, `Restart=on-failure`), `uninstall`.
+    Validé en démo ; **le kiosque sur l'écran DP-1 reste à vérifier en réel** (si ce n'est
+    pas le bon écran : `KIOSK_SCREEN` dans `config.py`, noms via `xrandr --listmonitors`).
 - ⚠️ **La résistance du Woodrower n'est pas motorisée.** Validé en réel : la console
   accepte Set Target Resistance à l'arrêt (indication `success`, niveau reflété dans
   Rower Data) mais le refuse en séance (`invalid_parameter`) et l'effort ne change
@@ -139,20 +164,21 @@ Domyos/
 
 ## Prochaine session
 
-1. ~~Retour session 18~~ : écran lisible ; bip refait (14/10 soir) et **validé** (touche B) :
-   carré 880 Hz × 2 à la montée / 440 Hz long à la descente, gain 0,4 ; indicateur
-   « 🔇 son bloqué » dans la barre si l'AudioContext est suspendu (flag autoplay absent),
-   débloqué par un clic ; **touche B = bip de test** en kiosque.
-2. Côté HA (Cowork) : corriger les cartes ApexCharts de la vue « Santé » ;
-   `python3 ha.py cleanup-demo` pour retirer le device « Rameur démo ».
-3. Hygiène : `git init` (`.gitignore` et `config.example.py` existent déjà) ; sortir
-   `LibreOffice Writer.odt` du dossier projet (il contient le mot de passe MQTT).
-4. Optionnel : recalculer les agrégats de la session 14 avec la règle de coasting affinée
+1. **Valider en réel le lot « confort »** : `./domyos.sh start` (kiosque sur le bon écran ?
+   sinon `KIOSK_SCREEN` dans `config.py`), touche P → lancer un preset, suivre le bandeau
+   (étape suivante, fin de programme), rappel sonore molette toutes les 10 s, puis
+   `./domyos.sh install` si le service systemd convient (vérifier que l'anti-veille GNOME
+   fonctionne depuis le service : ligne `[VEILLE]` dans `./domyos.sh logs`).
+2. Côté HA (Cowork) : corriger les cartes ApexCharts de la vue « Santé ».
+3. Optionnel : recalculer les agrégats de la session 14 avec la règle de coasting affinée
    (moy. 43,9 W, max 73 W, allure 200 s, cadence 21,7) — sessions 15 et 16 inchangées.
+4. Pistes suivantes (discussion du 14/10) : historique / progression dans le dashboard ou
+   HA, programmes à puissance cible (R2 ≈ 41 W, R5 ≈ 51 W mesurés), ceinture cardio BLE
+   (service 0x180D), tests automatisés logger + parseur FTMS.
 
 Points ouverts :
-- Bip du dashboard : nécessite `--autoplay-policy=no-user-gesture-required` sur Brave
-  (ou un clic dans la page), non testé sur la télé.
+- Bip du dashboard : validé le 14/10 avec `--autoplay-policy=no-user-gesture-required`
+  (profil Brave séparé via `domyos.sh`) ; indicateur 🔇 + clic si le flag manque ; touche B.
 - Pas de capteur FC : si un jour ceinture BLE (service 0x180D), l'intégrer dans `server.py`.
 
 ## Comportement observé du rameur
@@ -275,15 +301,26 @@ python3 server.py
 python3 server.py --demo          # rameur simulé, DB demo.db
 curl localhost:8765/api/state
 
-# Dashboard sur la télé (plein écran, kiosque)
-brave-browser --kiosk --app=http://localhost:8765/ --autoplay-policy=no-user-gesture-required   # F11 si la barre de titre reste ; autoplay pour le bip
+# Séance au quotidien : lanceur unique
+./domyos.sh install        # une fois : service systemd utilisateur domyos-server (démarre à l'ouverture de session)
+./domyos.sh start          # serveur (si besoin) + kiosque Brave sur l'écran config.KIOSK_SCREEN
+./domyos.sh status | logs | stop | stop-all
 
-# Pilotage de la résistance (serveur lancé, rameur allumé)
-python3 trainer.py probe                     # 1re fois : trouver l'encodage → ftms.RESISTANCE_ENCODING
-python3 trainer.py set 5
+# Dashboard en kiosque, à la main (profil séparé pour que le flag autoplay → bip s'applique)
+brave-browser --user-data-dir=~/.config/domyos-kiosk --kiosk --app=http://localhost:8765/ --autoplay-policy=no-user-gesture-required
+
+# Programmes : dans le dashboard touche P (menu), S (arrêter), B (bip de test) — ou en CLI
+python3 trainer.py list                      # presets de programs.json
+python3 trainer.py run intervalles_courts    # suit le programme dans le terminal ; --detach pour rendre la main
 python3 trainer.py run intervals --work 60 --rest 60 --reps 6 --hi 8 --lo 3
 python3 trainer.py run pyramid --lo 2 --hi 8 --step 60
+python3 trainer.py run mon_programme.json
 python3 trainer.py stop
+curl localhost:8765/api/programs
+
+# Control Point (tests ; la résistance reste manuelle)
+python3 trainer.py probe
+python3 trainer.py set 5
 
 # Home Assistant
 python3 server.py --no-ha                  # sans MQTT ni webhook

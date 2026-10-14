@@ -24,9 +24,13 @@ Messages WebSocket serveur → clients :
 Messages clients → serveur (pilotage, étape 3) :
     {"type":"set_resistance", "level": 1..15, "encoding": "spec"|"uint8"|"int16" (optionnel)}
     {"type":"start"} | {"type":"pause"} | {"type":"stop"} | {"type":"reset"}
-    {"type":"program", ...}   état d'un programme (trainer.py) — mémorisé et rediffusé
-                              tel quel à tous les clients ; {"type":"program","active":false}
-                              l'efface
+    {"type":"program_start", "preset": "<id de programs.json>"}
+      ou {"type":"program_start", "name": "...", "kind": "intervals|pyramid|steady|steps",
+          "params": {...} | "steps": [...]}   → le serveur déroule le programme sur le
+          chrono du rameur (ProgramRunner) et diffuse {"type":"program", ...} à chaque
+          seconde / changement d'étape ; {"type":"program","active":false,"finished":bool}
+          à la fin ou sur {"type":"program_stop"}
+    GET /api/programs : presets de programs.json
 """
 
 import asyncio
@@ -44,6 +48,7 @@ from bleak import BleakClient
 from bleak.exc import BleakError
 
 import ftms
+import programs
 from logger import SessionLogger, DB_PATH
 
 try:
@@ -106,6 +111,89 @@ class ScreenInhibitor:
             log("VEILLE", "anti-veille levé (rameur éteint)")
 
 
+class ProgramRunner:
+    """
+    Déroule un programme (liste d'étapes label / duration_s / resistance) sur le
+    chrono du rameur : démarre au premier coup, se fige en pause, repart de
+    l'étape courante après un reset. Diffuse {"type":"program"} aux clients WS.
+    La résistance n'est jamais envoyée au rameur (molette manuelle) : c'est une
+    consigne affichée par le dashboard.
+    """
+
+    def __init__(self, server: "RowerServer"):
+        self.server = server
+        self.name: str | None = None
+        self.steps: list[dict] = []
+        self.idx = 0
+        self.total = 0
+        self.step_start: int | None = None    # chrono rameur au début de l'étape courante
+        self.msg: dict | None = None          # dernier message diffusé (renvoyé aux nouveaux clients)
+        self._last_key = None
+
+    @property
+    def active(self) -> bool:
+        return bool(self.steps)
+
+    async def start(self, name: str, steps: list[dict], source: str = "ws") -> None:
+        self.name, self.steps, self.idx = name, steps, 0
+        self.total = sum(s["duration_s"] for s in steps)
+        self.step_start = None
+        self._last_key = None
+        log("PROG", f"« {name} » : {len(steps)} étapes, {self.total // 60} min {self.total % 60:02d} s ({source})")
+        await self._publish(steps[0]["duration_s"])
+        if self.server.machine_state == "running" and self.server.last_data:
+            await self.tick(self.server.last_data.get("elapsed_s"))
+
+    async def stop(self, finished: bool = False) -> None:
+        if not self.active:
+            return
+        name, self.name, self.steps, self.msg = self.name, None, [], None
+        self.step_start = None
+        log("PROG", f"« {name} » {'terminé' if finished else 'arrêté'}")
+        await self.server.broadcast({"type": "program", "active": False, "finished": finished, "name": name})
+
+    async def tick(self, elapsed: int | None) -> None:
+        """À chaque paquet Rower Data (ou à la reprise)."""
+        if not self.active or elapsed is None:
+            return
+        if self.step_start is None:
+            if self.server.machine_state != "running":
+                return                        # en attente du premier coup
+            self.step_start = elapsed
+        if elapsed < self.step_start:         # reset du rameur → on repart de l'étape courante
+            self.step_start = elapsed
+        step = self.steps[self.idx]
+        remaining = step["duration_s"] - (elapsed - self.step_start)
+        if remaining <= 0:
+            self.idx += 1
+            self.step_start = elapsed
+            if self.idx >= len(self.steps):
+                await self.stop(finished=True)
+                return
+            remaining = self.steps[self.idx]["duration_s"]
+        await self._publish(remaining)
+
+    async def _publish(self, remaining: float) -> None:
+        step = self.steps[self.idx]
+        remaining = max(0, round(remaining))
+        key = (self.idx, remaining)
+        if key == self._last_key:
+            return
+        self._last_key = key
+        nxt = self.steps[self.idx + 1] if self.idx + 1 < len(self.steps) else None
+        self.msg = {
+            "type": "program", "active": True, "name": self.name,
+            "step": self.idx + 1, "steps": len(self.steps),
+            "label": step["label"], "resistance": step["resistance"],
+            "remaining_s": remaining, "total_s": self.total,
+            "elapsed_s": sum(s["duration_s"] for s in self.steps[:self.idx]) + step["duration_s"] - remaining,
+            "started": self.step_start is not None,
+            "next_label": nxt["label"] if nxt else None,
+            "next_resistance": nxt["resistance"] if nxt else None,
+        }
+        await self.server.broadcast(self.msg)
+
+
 class RowerServer:
     def __init__(self, db_path: Path = DB_PATH, ha=None, inhibitor: ScreenInhibitor | None = None):
         self.db_path = db_path
@@ -117,12 +205,16 @@ class RowerServer:
         self.connected = False
         self.control_acquired = False
         self.last_data: dict | None = None
-        self.program: dict | None = None     # état du programme en cours (trainer.py)
+        self.runner = ProgramRunner(self)    # programme en cours (dashboard / trainer.py)
         self.demo_resistance = 4             # résistance du rameur simulé (--demo)
         self._waiting_announced = False
         self._paused_broadcast = False
 
     # ── Messages ──────────────────────────────────────────────────────────────
+    @property
+    def program(self) -> dict | None:
+        return self.runner.msg
+
     @property
     def machine_state(self) -> str:
         if not self.connected:
@@ -204,6 +296,7 @@ class RowerServer:
             await self.broadcast(self.status_msg())
         self.last_data = self.data_msg(parsed, self.logger.session_id)
         await self.broadcast(self.last_data)
+        await self.runner.tick(parsed.get("elapsed_s"))
 
     async def on_machine_status(self, _sender, data: bytearray) -> None:
         st = ftms.parse_machine_status(data)
@@ -323,10 +416,26 @@ class RowerServer:
     # ── Pilotage (Control Point) ──────────────────────────────────────────────
     async def handle_command(self, msg: dict) -> dict:
         cmd = msg.get("type")
-        if cmd == "program":
-            self.program = msg if msg.get("active", True) else None
-            await self.broadcast(msg)
+        if cmd == "program_start":
+            try:
+                if msg.get("preset"):
+                    spec = programs.preset(msg["preset"])
+                    if not spec:
+                        return {"type": "error", "error": "unknown_preset", "command": cmd}
+                else:
+                    spec = {"type": msg.get("kind", "steps"), "name": msg.get("name"),
+                            "params": msg.get("params"), "steps": msg.get("steps")}
+                name, steps = programs.build(spec)
+            except (ValueError, KeyError, TypeError) as e:
+                return {"type": "error", "error": f"programme invalide : {e}", "command": cmd}
+            await self.runner.start(name, steps, source=msg.get("source", "ws"))
+            return {"type": "ack", "command": cmd, "name": name, "steps": len(steps),
+                    "total_s": self.runner.total}
+        if cmd == "program_stop" or (cmd == "program" and not msg.get("active", True)):
+            await self.runner.stop()
             return {"type": "ack", "command": cmd}
+        if cmd == "program":
+            return {"type": "error", "error": "use program_start", "command": cmd}
         if not self.connected:
             return {"type": "error", "error": "rower_not_connected", "command": cmd}
         if self.ble is None:                             # mode --demo : on simule le Control Point
@@ -388,6 +497,12 @@ class RowerServer:
             log("WS", f"client parti — {len(self.clients)} client(s)")
         return ws
 
+    async def api_programs(self, _request) -> web.Response:
+        try:
+            return web.json_response(programs.presets())
+        except (ValueError, KeyError, json.JSONDecodeError) as e:
+            return web.json_response({"error": f"programs.json invalide : {e}"}, status=500)
+
     async def api_state(self, _request) -> web.Response:
         return web.json_response({**self.status_msg(), "last_data": self.last_data,
                                   "program": self.program})
@@ -434,6 +549,7 @@ class RowerServer:
         app.router.add_get("/", self.index)
         app.router.add_get("/ws", self.ws_handler)
         app.router.add_get("/api/state", self.api_state)
+        app.router.add_get("/api/programs", self.api_programs)
         app.router.add_get("/api/sessions", self.api_sessions)
         app.router.add_get("/api/sessions/{id}", self.api_session)
         if DASHBOARD_DIR.is_dir():

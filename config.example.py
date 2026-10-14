@@ -19,3 +19,6 @@ HA_WEBHOOK_URL = "http://192.168.0.205/api/webhook/<id du webhook>"
 
 # Cadence de publication des métriques live (secondes)
 MQTT_LIVE_INTERVAL_S = 1.0
+
+# Écran du kiosque (nom xrandr : xrandr --listmonitors) pour ./domyos.sh start
+KIOSK_SCREEN = "DP-1"
