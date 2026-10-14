@@ -141,7 +141,11 @@ Domyos/
     programme armé / en cours (barre, étape suivante, bouton Arrêter), presets avec
     « Armer » et suppression, composeur Intervalles / Pyramide / Palier avec aperçu des
     étapes, « Armer cette séance » et « Enregistrer en preset » (POST `/api/programs`,
-    écrit `programs.json`), 8 dernières séances. Un programme armé **démarre tout seul au
+    écrit `programs.json`), 8 dernières séances. **Étapes éditables** (14/10 soir) : la
+    liste d'aperçu se modifie à la main (nom, durée mm:ss, molette, ↑↓ déplacer, ⧉
+    dupliquer, ✕ supprimer, « + Ajouter une étape », « Vider ») ; la première retouche
+    passe en onglet « Libre » (type `steps`, les champs du générateur ne s'appliquent
+    plus) ; bouton « Modifier » sur chaque preset pour le charger dans le composeur. Un programme armé **démarre tout seul au
     premier coup de rame** (ProgramRunner). Validé en démo.
   - Rappel sonore molette **seulement en séance** (`running` + programme démarré), plus
     de bips en pause / prêt / hors ligne.

@@ -23,3 +23,11 @@
 15:42:08 [BLE] rameur injoignable (BleakDeviceNotFoundError), nouvel essai toutes les 5s
 15:42:35 [WS] client parti — 1 client(s)
 15:42:53 [WS] client parti — 0 client(s)
+16:48:09 [SRV] arrêté
+[DB] /home/benz/Projets/Domyos/domyos.db ouverte (WAL)
+19:53:25 [HTTP] http://localhost:8765  (ws://localhost:8765/ws) — Ctrl+C pour quitter
+19:53:25 [HA] MQTT 192.168.0.205:1883 → domyos/woodrower/state (Rameur)
+19:53:25 [HA] connecté au broker
+19:53:26 [WS] client connecté (127.0.0.1) — 1 client(s)
+19:53:28 [WS] client connecté (127.0.0.1) — 2 client(s)
+19:53:35 [BLE] rameur injoignable (BleakDeviceNotFoundError), nouvel essai toutes les 5s

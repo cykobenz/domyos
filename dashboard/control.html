@@ -44,8 +44,11 @@
   .tabs button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--border); }
-  th { color: var(--text-muted); font-weight: 500; } td.r, th.r { text-align: right; }
-  .steps { max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 12px; }
+  th { color: var(--text-muted); font-weight: 500; position: sticky; top: 0; background: var(--surface-1); } td.r, th.r { text-align: right; }
+  .steps td input { padding: 4px 7px; border-radius: 6px; } .steps td input.e-label { width: 100%; min-width: 120px; }
+  .steps td input.e-dur { width: 64px; text-align: right; } .steps td input.e-res { width: 56px; text-align: right; }
+  .steps td.btns { white-space: nowrap; text-align: right; } .steps td.btns button { padding: 2px 7px; font-size: 12px; margin-left: 2px; }
+  .steps { max-height: 300px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 12px; }
   .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .actions input { width: 220px; }
   .toast { position: fixed; bottom: 18px; right: 22px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; opacity: 0; transition: opacity .3s; }
@@ -95,15 +98,18 @@
       <div class="presets" id="presets"></div>
     </div>
 
-    <div class="card">
+    <div class="card" id="composer">
       <h2>Composer une séance</h2>
       <div class="tabs" id="tabs">
         <button data-kind="intervals" class="on">Intervalles</button>
         <button data-kind="pyramid">Pyramide</button>
         <button data-kind="steady">Palier</button>
+        <button data-kind="steps">Libre</button>
       </div>
       <div class="fields" id="fields"></div>
-      <div class="steps"><table><thead><tr><th>#</th><th>Étape</th><th class="r">Durée</th><th class="r">Molette</th></tr></thead><tbody id="preview"></tbody></table></div>
+      <div class="muted" id="hint" style="font-size:13px;margin:0 0 8px">Chaque étape se modifie à la main : nom, durée (mm:ss ou secondes), molette ; ↑ ↓ déplacent, ⧉ duplique, ✕ supprime. Dès que tu retouches une étape, la séance passe en mode « Libre » (les champs du générateur ne s'appliquent plus).</div>
+      <div class="steps"><table><thead><tr><th>#</th><th>Étape</th><th class="r">Durée</th><th class="r">Molette</th><th></th></tr></thead><tbody id="preview"></tbody></table></div>
+      <div class="actions" style="margin:-4px 0 12px"><button class="small" id="btn-add">+ Ajouter une étape</button><button class="small" id="btn-clear">Vider</button></div>
       <div class="actions">
         <button class="primary" id="btn-arm">Armer cette séance</button>
         <span class="muted" id="total"></span>
@@ -163,9 +169,16 @@
         <div class="name">${p.name}</div><div class="desc">${p.desc || ""}</div>
         <div class="row"><span class="dur">${fmtLong(p.duration_s)} · ${p.steps_count} étape${p.steps_count > 1 ? "s" : ""}</span>
           <button class="small" data-del="${p.id}" title="supprimer">✕</button>
+          <button class="small" data-edit="${p.id}" title="charger dans le composeur pour l'adapter">Modifier</button>
           <button class="small primary" data-arm="${p.id}">Armer</button></div>
       </div>`).join("");
     $("presets").querySelectorAll("[data-arm]").forEach(b => b.onclick = () => { send({ type: "program_start", preset: b.dataset.arm, source: "control" }); toast("programme armé"); });
+    $("presets").querySelectorAll("[data-edit]").forEach(b => b.onclick = () => {
+      const p = presets.find(x => x.id === b.dataset.edit);
+      steps = p.type === "steps" ? (p.steps || []).map(s => ({ ...s })) : build(p.type, { ...defaults(p.type), ...(p.params || {}) });
+      setKind("steps"); $("save-name").value = p.name; renderPreview();
+      document.getElementById("composer").scrollIntoView({ behavior: "smooth" }); toast(`« ${p.name} » chargé dans le composeur`);
+    });
     $("presets").querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
       const p = presets.find(x => x.id === b.dataset.del);
       if (!confirm(`Supprimer le preset « ${p.name} » ?`)) return;
@@ -178,10 +191,13 @@
     intervals: [["warmup", "Échauffement (s)", 120], ["work", "Effort (s)", 60], ["rest", "Récup (s)", 60], ["reps", "Répétitions", 6], ["hi", "Molette effort", 5], ["lo", "Molette récup", 2], ["cooldown", "Retour au calme (s)", 120]],
     pyramid:   [["lo", "Molette basse", 2], ["hi", "Molette haute", 6], ["step", "Durée d'un palier (s)", 60]],
     steady:    [["level", "Molette", 4], ["minutes", "Durée (min)", 20]],
+    steps:     [],
   };
-  let kind = "intervals";
+  const kindName = { intervals: "Intervalles", pyramid: "Pyramide", steady: "Palier", steps: "Programme" };
+  const defaults = k => Object.fromEntries((FIELDS[k] || []).map(([key, , d]) => [key, d]));
+  let kind = "intervals", steps = [];      // `steps` = la séance affichée, toujours la source de vérité
   const params = () => Object.fromEntries(FIELDS[kind].map(([k]) => [k, Number($("f-" + k).value)]));
-  function build(kind, p) {           // même logique que programs.py (aperçu seulement : le serveur fait foi)
+  function build(kind, p) {           // même logique que programs.py (aperçu : le serveur fait foi)
     if (kind === "intervals") {
       const s = [{ label: "Échauffement", duration_s: p.warmup, resistance: p.lo }];
       for (let i = 1; i <= p.reps; i++) s.push({ label: `Effort ${i}/${p.reps}`, duration_s: p.work, resistance: p.hi }, { label: `Récup ${i}/${p.reps}`, duration_s: p.rest, resistance: p.lo });
@@ -192,32 +208,72 @@
       const lv = []; for (let l = p.lo; l <= p.hi; l++) lv.push(l); for (let l = p.hi - 1; l >= p.lo; l--) lv.push(l);
       return lv.map(l => ({ label: `Palier ${l}`, duration_s: p.step, resistance: l }));
     }
-    return [{ label: `Palier ${p.level}`, duration_s: p.minutes * 60, resistance: p.level }];
+    if (kind === "steady") return [{ label: `Palier ${p.level}`, duration_s: p.minutes * 60, resistance: p.level }];
+    return [];
   }
-  function renderFields() {
-    $("fields").innerHTML = FIELDS[kind].map(([k, l, d]) => `<label>${l}<input type="number" id="f-${k}" value="${d}" min="0"></label>`).join("");
-    $("fields").querySelectorAll("input").forEach(i => i.oninput = renderPreview);
-    renderPreview();
+  const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+  const parseDur = v => { v = String(v).trim(); if (v.includes(":")) { const [m, s] = v.split(":"); return (Number(m) || 0) * 60 + (Number(s) || 0); } return Math.max(0, Math.round(Number(v)) || 0); };
+  const clampRes = v => Math.min(15, Math.max(1, Math.round(Number(v)) || 1));
+  function setKind(k) {
+    kind = k; $("tabs").querySelectorAll("button").forEach(x => x.classList.toggle("on", x.dataset.kind === k));
+    $("fields").innerHTML = FIELDS[k].map(([key, l, d]) => `<label>${l}<input type="number" id="f-${key}" value="${d}" min="0"></label>`).join("");
+    $("fields").querySelectorAll("input").forEach(i => i.oninput = regenerate);
+    $("fields").style.display = FIELDS[k].length ? "" : "none";
   }
+  function regenerate() { try { steps = build(kind, params()); } catch (e) { steps = []; } renderPreview(); }
+  function goFree() { if (kind !== "steps") setKind("steps"); }     // une retouche manuelle fige la liste
   function renderPreview() {
-    let steps = []; try { steps = build(kind, params()); } catch (e) {}
-    $("preview").innerHTML = steps.map((s, i) => `<tr><td>${i + 1}</td><td>${s.label}</td><td class="r">${fmt(s.duration_s)}</td><td class="r">R${s.resistance}</td></tr>`).join("");
-    const total = steps.reduce((a, s) => a + s.duration_s, 0);
-    $("total").textContent = steps.length ? `${steps.length} étapes · ${fmtLong(total)}` : "";
-    $("btn-arm").disabled = !steps.length;
+    $("preview").innerHTML = steps.map((s, i) => `<tr data-i="${i}"><td>${i + 1}</td>
+      <td><input class="e-label" value="${esc(s.label)}"></td>
+      <td class="r"><input class="e-dur" value="${fmt(s.duration_s)}"></td>
+      <td class="r"><input class="e-res" type="number" min="1" max="15" value="${s.resistance}"></td>
+      <td class="btns"><button data-act="up" title="monter" ${i ? "" : "disabled"}>↑</button><button data-act="down" title="descendre" ${i < steps.length - 1 ? "" : "disabled"}>↓</button><button data-act="dup" title="dupliquer">⧉</button><button data-act="del" class="danger" title="supprimer">✕</button></td></tr>`).join("")
+      || `<tr><td colspan="5" class="muted">aucune étape — « + Ajouter une étape » ou choisis un générateur</td></tr>`;
+    updateTotal();
   }
-  $("tabs").querySelectorAll("button").forEach(b => b.onclick = () => {
-    kind = b.dataset.kind; $("tabs").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b)); renderFields();
+  function updateTotal() {
+    const valid = steps.filter(s => s.duration_s > 0);
+    const total = valid.reduce((a, s) => a + s.duration_s, 0);
+    $("total").textContent = valid.length ? `${valid.length} étape${valid.length > 1 ? "s" : ""} · ${fmtLong(total)}` : "";
+    $("btn-arm").disabled = !valid.length;
+  }
+  $("preview").addEventListener("change", e => {              // édition d'une cellule : pas de re-rendu (garde le focus / Tab)
+    const tr = e.target.closest("tr[data-i]"); if (!tr) return;
+    const s = steps[+tr.dataset.i], el = e.target;
+    if (el.classList.contains("e-label")) { s.label = el.value.trim() || `Étape ${+tr.dataset.i + 1}`; el.value = s.label; }
+    else if (el.classList.contains("e-dur")) { s.duration_s = parseDur(el.value); el.value = fmt(s.duration_s); }
+    else if (el.classList.contains("e-res")) { s.resistance = clampRes(el.value); el.value = s.resistance; }
+    goFree(); updateTotal();
   });
-  const kindName = { intervals: "Intervalles", pyramid: "Pyramide", steady: "Palier" };
-  $("btn-arm").onclick = () => { send({ type: "program_start", kind, params: params(), name: $("save-name").value.trim() || kindName[kind], source: "control" }); toast("séance armée"); };
+  $("preview").addEventListener("click", e => {
+    const b = e.target.closest("button[data-act]"); if (!b) return;
+    const i = +b.closest("tr").dataset.i, a = b.dataset.act;
+    if (a === "del") steps.splice(i, 1);
+    else if (a === "dup") steps.splice(i + 1, 0, { ...steps[i] });
+    else if (a === "up" && i > 0) [steps[i - 1], steps[i]] = [steps[i], steps[i - 1]];
+    else if (a === "down" && i < steps.length - 1) [steps[i], steps[i + 1]] = [steps[i + 1], steps[i]];
+    goFree(); renderPreview();
+  });
+  $("btn-add").onclick = () => {
+    const l = steps[steps.length - 1];
+    steps.push({ label: `Étape ${steps.length + 1}`, duration_s: l ? l.duration_s : 60, resistance: l ? l.resistance : 3 });
+    goFree(); renderPreview();
+    const inp = $("preview").querySelector("tr:last-child .e-label"); if (inp) { inp.focus(); inp.select(); }
+  };
+  $("btn-clear").onclick = () => { steps = []; goFree(); renderPreview(); };
+  $("tabs").querySelectorAll("button").forEach(b => b.onclick = () => { setKind(b.dataset.kind); if (kind !== "steps") regenerate(); else renderPreview(); });
+  const payload = () => kind === "steps" ? { kind, steps: steps.filter(s => s.duration_s > 0) } : { kind, params: params() };
+  $("btn-arm").onclick = () => { send({ type: "program_start", ...payload(), name: $("save-name").value.trim() || kindName[kind], source: "control" }); toast("séance armée"); };
   $("btn-save").onclick = async () => {
     const name = $("save-name").value.trim();
     if (!name) { $("save-name").focus(); toast("donne un nom au preset"); return; }
-    const p = params(); const steps = build(kind, p);
+    const p = kind === "steps" ? null : params();
+    const valid = steps.filter(s => s.duration_s > 0);
     const desc = kind === "intervals" ? `${fmtLong(p.warmup)} échauffement, ${p.reps} × (${p.work} s R${p.hi} / ${p.rest} s R${p.lo}), ${fmtLong(p.cooldown)} retour au calme`
-               : kind === "pyramid" ? `Paliers de ${fmtLong(p.step)} de R${p.lo} à R${p.hi} puis retour` : `${p.minutes} min régulières à R${p.level}`;
-    const r = await fetch("/api/programs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, desc, kind, params: p }) });
+               : kind === "pyramid" ? `Paliers de ${fmtLong(p.step)} de R${p.lo} à R${p.hi} puis retour`
+               : kind === "steady" ? `${p.minutes} min régulières à R${p.level}`
+               : valid.map(s => `${fmt(s.duration_s)} R${s.resistance}`).join(" · ");
+    const r = await fetch("/api/programs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, desc, ...payload() }) });
     if (r.ok) { toast(`preset « ${name} » enregistré`); $("save-name").value = ""; loadPresets(); } else toast("erreur : " + ((await r.json()).error || r.status));
   };
 
@@ -244,7 +300,7 @@
     ws.onclose = () => { renderStatus(); setTimeout(connect, 2000); };
     ws.onerror = () => ws.close();
   }
-  renderFields(); renderStatus(); renderProgram(); connect();
+  setKind("intervals"); regenerate(); renderStatus(); renderProgram(); connect();
 })();
 </script>
 </body>
