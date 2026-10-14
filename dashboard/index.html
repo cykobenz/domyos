@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Domyos Woodrower</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --surface-0: #111110;
+    --surface-1: #1a1a19;
+    --surface-2: #242423;
+    --border:    #2e2e2c;
+    --text-primary:   #f0efec;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #8a897f;
+    --series-power:   #3987e5;   /* slot 1 bleu */
+    --series-cadence: #d95926;   /* slot 2 orange */
+    --status-good:    #0ca30c;
+    --status-warning: #fab219;
+    --status-critical:#d03b3b;
+    --radius: 18px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--surface-0);
+    color: var(--text-primary);
+    font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    padding: 2vh 2vw;
+    display: grid;
+    grid-template-rows: auto auto 1.05fr auto 0.95fr;
+    gap: 2vh;
+    cursor: none;
+  }
+  body.cursor { cursor: default; }
+
+  /* ── barre d'état ── */
+  header { display: flex; align-items: center; gap: 1.2vw; font-size: 2.2vh; color: var(--text-secondary); }
+  header .dot { width: 1.6vh; height: 1.6vh; border-radius: 50%; background: var(--text-muted); }
+  header .dot.on { background: var(--status-good); }
+  header .dot.paused { background: var(--status-warning); }
+  header .spacer { flex: 1; }
+  header .clock { font-size: 2.6vh; color: var(--text-primary); }
+
+  /* ── programme (trainer.py) ── */
+  #program {
+    display: none; align-items: center; gap: 2vw; padding: 1.2vh 2vw;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius);
+    font-size: 3.2vh; position: relative; overflow: hidden;
+  }
+  #program.show { display: flex; }
+  #program .name { color: var(--text-secondary); }
+  #program .step { font-weight: 600; }
+  #program .target { color: var(--series-power); font-weight: 600; }
+  #program .todo { display: none; color: var(--status-warning); font-weight: 700; }
+  #program.mismatch .todo { display: inline; animation: pulse 1s ease-in-out infinite; }
+  #program.mismatch { border-color: var(--status-warning); }
+  @keyframes pulse { 50% { opacity: .35; } }
+  #program .remaining { margin-left: auto; font-size: 4.5vh; font-weight: 600; }
+  #program .bar { position: absolute; left: 0; bottom: 0; height: .8vh; background: var(--series-power); width: 0; transition: width .3s linear; }
+
+  /* ── tuiles ── */
+  .tiles { display: grid; gap: 1.5vw; }
+  .tiles.big   { grid-template-columns: repeat(4, 1fr); }
+  .tiles.small { grid-template-columns: repeat(4, 1fr); }
+  .tile {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 1.5vh 2vw; display: flex; flex-direction: column; justify-content: center;
+    transition: opacity .4s;
+  }
+  .tile .label { font-size: 2.4vh; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .08em; }
+  .tile .value { font-size: 14vh; line-height: 1.05; font-weight: 600; letter-spacing: -.02em; }
+  .tile .unit  { font-size: 3vh; color: var(--text-muted); margin-left: .3em; font-weight: 400; }
+  .tiles.small .tile .value { font-size: 6vh; }
+  .tiles.small .tile .label { font-size: 1.9vh; }
+  .tile.dim { opacity: .35; }
+  .tile.dim .label::after { content: " · figé"; color: var(--status-warning); text-transform: none; letter-spacing: 0; }
+
+  /* ── graphes ── */
+  .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5vw; min-height: 0; }
+  .chart {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 1.2vh 1.5vw; display: flex; flex-direction: column; min-height: 0; position: relative;
+  }
+  .chart h2 { margin: 0 0 .5vh; font-size: 2.2vh; font-weight: 500; color: var(--text-secondary); display: flex; gap: .6em; align-items: center; }
+  .chart h2 .swatch { width: 1.2em; height: .35em; border-radius: 2px; }
+  .chart h2 .last { margin-left: auto; color: var(--text-primary); font-size: 2.6vh; }
+  .chart canvas { flex: 1; width: 100%; min-height: 0; }
+  .tooltip {
+    position: absolute; pointer-events: none; display: none;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+    padding: .4em .7em; font-size: 2vh; color: var(--text-primary); white-space: nowrap;
+  }
+
+  /* ── bandeau d'état plein écran ── */
+  #banner {
+    position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+    background: rgba(17,17,16,.72); backdrop-filter: blur(6px); z-index: 10; flex-direction: column; gap: 2vh;
+  }
+  #banner.show { display: flex; }
+  #banner .big { font-size: 16vh; font-weight: 700; letter-spacing: .1em; }
+  #banner .sub { font-size: 3vh; color: var(--text-secondary); }
+  #banner.paused .big { color: var(--status-warning); }
+  #banner.offline .big { color: var(--status-critical); font-size: 9vh; letter-spacing: .02em; }
+  #banner.idle .big { color: var(--text-secondary); font-size: 9vh; letter-spacing: .02em; }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="dot" id="dot"></span>
+  <span id="state-text">connexion au serveur…</span>
+  <span id="session-text"></span>
+  <span class="spacer"></span>
+  <span id="resistance-text"></span>
+  <span class="clock" id="clock">--:--</span>
+</header>
+
+<section id="program">
+  <span class="name" id="p-name"></span>
+  <span class="step" id="p-step"></span>
+  <span class="target" id="p-target"></span>
+  <span class="todo" id="p-todo"></span>
+  <span class="remaining" id="p-remaining"></span>
+  <div class="bar" id="p-bar"></div>
+</section>
+
+<section class="tiles big">
+  <div class="tile"><div class="label">Temps</div><div class="value" id="v-time">00:00</div></div>
+  <div class="tile"><div class="label">Distance</div><div class="value" id="v-dist">0<span class="unit">m</span></div></div>
+  <div class="tile" id="t-pace"><div class="label">Allure</div><div class="value" id="v-pace">—<span class="unit">/500m</span></div></div>
+  <div class="tile" id="t-power"><div class="label">Puissance</div><div class="value" id="v-power">—<span class="unit">W</span></div></div>
+</section>
+
+<section class="tiles small">
+  <div class="tile" id="t-cad"><div class="label">Cadence</div><div class="value" id="v-cad">—<span class="unit">cpm</span></div></div>
+  <div class="tile"><div class="label">Coups</div><div class="value" id="v-strokes">0</div></div>
+  <div class="tile"><div class="label">Calories</div><div class="value" id="v-cal">0<span class="unit">kcal</span></div></div>
+  <div class="tile"><div class="label">Moyenne séance</div><div class="value" id="v-avg">—<span class="unit">W</span></div></div>
+</section>
+
+<section class="charts">
+  <div class="chart" id="c-power">
+    <h2><span class="swatch" style="background:var(--series-power)"></span>Puissance · 60 s<span class="last" id="l-power">—</span></h2>
+    <canvas></canvas><div class="tooltip"></div>
+  </div>
+  <div class="chart" id="c-cad">
+    <h2><span class="swatch" style="background:var(--series-cadence)"></span>Cadence · 60 s<span class="last" id="l-cad">—</span></h2>
+    <canvas></canvas><div class="tooltip"></div>
+  </div>
+</section>
+
+<div id="banner"><div class="big" id="banner-big"></div><div class="sub" id="banner-sub"></div></div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const WINDOW_S = 60;
+  const points = [];                 // {t, power, cad, coasting}
+  let status = { connected: false, machine_state: "offline", session_id: null };
+  let sessionPower = [];             // puissances vivantes de la session pour la moyenne
+  let serverUp = false;
+
+  // ── helpers ────────────────────────────────────────────────────────────────
+  const pad = n => String(n).padStart(2, "0");
+  const fmtTime = s => s == null ? "00:00" : (s >= 3600 ? `${Math.floor(s/3600)}:${pad(Math.floor(s%3600/60))}:${pad(s%60)}` : `${pad(Math.floor(s/60))}:${pad(s%60)}`);
+  const fmtPace = p => p ? `${Math.floor(p/60)}:${pad(p%60)}` : "—";
+  const setVal = (id, v, unit) => { $(id).innerHTML = unit ? `${v}<span class="unit">${unit}</span>` : v; };
+
+  setInterval(() => { const d = new Date(); $("clock").textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}`; }, 1000);
+
+  // ── état / bandeau ─────────────────────────────────────────────────────────
+  function renderStatus() {
+    const dot = $("dot"), banner = $("banner");
+    dot.className = "dot";
+    let text, big = "", sub = "", cls = "";
+    if (!serverUp)                                { text = "serveur injoignable"; cls = "offline"; big = "SERVEUR INJOIGNABLE"; sub = "server.py est-il lancé ?"; }
+    else if (!status.connected)                   { text = "rameur hors ligne"; cls = "offline"; big = "RAMEUR HORS LIGNE"; sub = "Allume le rameur, la connexion est automatique"; }
+    else if (status.machine_state === "paused")   { text = "pause"; dot.classList.add("paused"); cls = "paused"; big = "PAUSE"; sub = "Reprends quand tu veux"; }
+    else if (status.machine_state === "idle")     { text = "prêt"; dot.classList.add("on"); cls = "idle"; big = "PRÊT"; sub = "Le premier coup de rame démarre la séance"; }
+    else                                          { text = "séance en cours"; dot.classList.add("on"); }
+    $("state-text").textContent = text;
+    $("session-text").textContent = status.session_id ? `· session #${status.session_id}` : "";
+    banner.className = cls ? `show ${cls}` : "";
+    $("banner-big").textContent = big; $("banner-sub").textContent = sub;
+  }
+
+  // ── données ────────────────────────────────────────────────────────────────
+  function onData(d) {
+    setVal("v-time", fmtTime(d.elapsed_s));
+    setVal("v-dist", d.distance_m ?? 0, "m");
+    setVal("v-pace", fmtPace(d.pace_s), "/500m");
+    setVal("v-power", d.power_w ? d.power_w : "—", "W");
+    setVal("v-cad", d.stroke_rate ? d.stroke_rate.toFixed(0) : "—", "cpm");
+    setVal("v-strokes", d.stroke_count ?? 0);
+    setVal("v-cal", d.calories ?? 0, "kcal");
+    $("resistance-text").textContent = d.resistance ? `résistance ${d.resistance}` : "";
+    actualResistance = d.resistance ?? null;
+    checkMismatch();
+    for (const id of ["t-pace", "t-power", "t-cad"]) $(id).classList.toggle("dim", !!d.coasting);
+
+    if (d.session_id && !d.coasting && d.power_w > 0) sessionPower.push(d.power_w);
+    if (sessionPower.length) setVal("v-avg", Math.round(sessionPower.reduce((a, b) => a + b, 0) / sessionPower.length), "W");
+
+    const t = performance.now() / 1000;
+    points.push({ t, power: d.coasting ? null : d.power_w, cad: d.coasting ? null : d.stroke_rate, coasting: !!d.coasting });
+    while (points.length && points[0].t < t - WINDOW_S - 1) points.shift();
+    $("l-power").textContent = d.power_w && !d.coasting ? `${d.power_w} W` : "—";
+    $("l-cad").textContent = d.stroke_rate && !d.coasting ? `${d.stroke_rate.toFixed(0)} cpm` : "—";
+    requestDraw();
+  }
+
+  // ── programme : consigne de résistance vs molette ──────────────────────────
+  let program = null, lastTarget = null, actualResistance = null;
+  function onProgram(m) {
+    const el = $("program");
+    program = m.active ? m : null;
+    if (!program) { el.classList.remove("show", "mismatch"); lastTarget = null; return; }
+    el.classList.add("show");
+    $("p-name").textContent = m.name;
+    $("p-step").textContent = `${m.label} · ${m.step}/${m.steps}`;
+    $("p-target").textContent = `cible R${m.resistance}`;
+    $("p-remaining").textContent = fmtTime(m.remaining_s);
+    $("p-bar").style.width = `${Math.min(100, 100 * m.elapsed_s / m.total_s)}%`;
+    if (lastTarget !== null && m.resistance !== lastTarget) beep(m.resistance > lastTarget ? 2 : 1);
+    lastTarget = m.resistance;
+    checkMismatch();
+  }
+  function checkMismatch() {
+    if (!program) return;
+    const bad = actualResistance != null && actualResistance !== program.resistance;
+    $("program").classList.toggle("mismatch", bad);
+    $("p-todo").textContent = bad ? `→ règle la molette sur ${program.resistance}` : "";
+  }
+  // bip court (Web Audio, sans fichier) — Brave : --autoplay-policy=no-user-gesture-required
+  let audio = null;
+  function beep(n) {
+    try {
+      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+      for (let i = 0; i < n; i++) {
+        const o = audio.createOscillator(), g = audio.createGain();
+        o.connect(g); g.connect(audio.destination);
+        o.frequency.value = 880; g.gain.value = 0.15;
+        const t0 = audio.currentTime + i * 0.25;
+        o.start(t0); o.stop(t0 + 0.15);
+      }
+    } catch (e) { /* audio bloqué par le navigateur : l'alerte visuelle suffit */ }
+  }
+
+  function onSession(m) {
+    if (m.event === "started") { sessionPower = []; setVal("v-avg", "—", "W"); }
+    if (m.event === "stopped" && m.stats) {
+      setVal("v-avg", m.stats.avg_power_w ? Math.round(m.stats.avg_power_w) : "—", "W");
+    }
+  }
+
+  // ── graphes (Canvas2D, un axe par graphe) ──────────────────────────────────
+  const charts = [
+    { el: $("c-power"), key: "power", color: getComputedStyle(document.documentElement).getPropertyValue("--series-power").trim(), unit: "W",   min: 0, floor: 100 },
+    { el: $("c-cad"),   key: "cad",   color: getComputedStyle(document.documentElement).getPropertyValue("--series-cadence").trim(), unit: "cpm", min: 0, floor: 30 },
+  ];
+  const css = getComputedStyle(document.documentElement);
+  const C = { grid: css.getPropertyValue("--border").trim(), muted: css.getPropertyValue("--text-muted").trim(), text: css.getPropertyValue("--text-secondary").trim() };
+
+  let drawPending = false;
+  function requestDraw() { if (!drawPending) { drawPending = true; requestAnimationFrame(() => { drawPending = false; charts.forEach(draw); }); } }
+
+  function draw(ch) {
+    const canvas = ch.el.querySelector("canvas");
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    if (!w || !h) return;
+    if (canvas.width !== w * dpr || canvas.height !== h * dpr) { canvas.width = w * dpr; canvas.height = h * dpr; }
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+
+    const fs = Math.max(14, Math.round(h * 0.075));          // police des axes ∝ hauteur (lisible depuis le canapé)
+    const padL = fs * 3.2, padR = 14, padT = fs * 0.6, padB = fs * 1.8;
+    const now = performance.now() / 1000;
+    const vals = points.map(p => p[ch.key]).filter(v => v != null);
+    const max = Math.max(ch.floor, ...vals) * 1.1;
+    const x = t => padL + (w - padL - padR) * (1 - (now - t) / WINDOW_S);
+    const y = v => padT + (h - padT - padB) * (1 - (v - ch.min) / (max - ch.min));
+
+    // grille recessive + axe y (3 repères)
+    ctx.font = `${fs}px system-ui, sans-serif`; ctx.fillStyle = C.muted; ctx.textAlign = "right"; ctx.textBaseline = "middle";
+    ctx.strokeStyle = C.grid; ctx.lineWidth = 1;
+    for (let i = 0; i <= 2; i++) {
+      const v = ch.min + (max - ch.min) * i / 2, yy = y(v);
+      ctx.beginPath(); ctx.moveTo(padL, yy); ctx.lineTo(w - padR, yy); ctx.stroke();
+      ctx.fillText(Math.round(v), padL - 8, yy);
+    }
+    // axe x : -60 s (aligné à gauche), -30 s (centré), maintenant (aligné à droite)
+    ctx.textBaseline = "top";
+    ctx.textAlign = "left";   ctx.fillText("-60 s", padL + 4, h - padB + fs * 0.4);
+    ctx.textAlign = "center"; ctx.fillText("-30 s", x(now - 30), h - padB + fs * 0.4);
+    ctx.textAlign = "right";  ctx.fillText("maintenant", w - padR, h - padB + fs * 0.4);
+
+    // ligne 2 px, coupée sur les trous (coasting)
+    ctx.strokeStyle = ch.color; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.lineCap = "round";
+    ctx.beginPath(); let pen = false;
+    for (const p of points) {
+      const v = p[ch.key];
+      if (v == null || p.t < now - WINDOW_S) { pen = false; continue; }
+      const xx = x(p.t), yy = y(v);
+      if (!pen) { ctx.moveTo(xx, yy); pen = true; } else ctx.lineTo(xx, yy);
+    }
+    ctx.stroke();
+    // marqueur sur la dernière valeur (anneau surface 2 px)
+    const last = [...points].reverse().find(p => p[ch.key] != null);
+    if (last && last.t >= now - WINDOW_S) {
+      ctx.beginPath(); ctx.arc(x(last.t), y(last[ch.key]), 6, 0, Math.PI * 2);
+      ctx.fillStyle = css.getPropertyValue("--surface-1").trim(); ctx.fill();
+      ctx.beginPath(); ctx.arc(x(last.t), y(last[ch.key]), 4, 0, Math.PI * 2);
+      ctx.fillStyle = ch.color; ctx.fill();
+    }
+    ch._scale = { x, y, padL, padR, w, h, now };
+  }
+
+  // survol : curseur + infobulle (utile sur un écran avec souris)
+  charts.forEach(ch => {
+    const canvas = ch.el.querySelector("canvas"), tip = ch.el.querySelector(".tooltip");
+    canvas.addEventListener("mousemove", e => {
+      document.body.classList.add("cursor");
+      if (!ch._scale) return;
+      const r = canvas.getBoundingClientRect(), mx = e.clientX - r.left;
+      const t = ch._scale.now - WINDOW_S * (1 - (mx - ch._scale.padL) / (ch._scale.w - ch._scale.padL - ch._scale.padR));
+      let best = null;
+      for (const p of points) if (p[ch.key] != null && (!best || Math.abs(p.t - t) < Math.abs(best.t - t))) best = p;
+      if (!best) { tip.style.display = "none"; return; }
+      tip.style.display = "block";
+      tip.textContent = `${Math.round(best[ch.key])} ${ch.unit} · il y a ${Math.max(0, Math.round(ch._scale.now - best.t))} s`;
+      tip.style.left = `${Math.min(e.clientX - r.left + 14, r.width - tip.offsetWidth - 8)}px`;
+      tip.style.top = `${e.clientY - r.top - 36}px`;
+    });
+    canvas.addEventListener("mouseleave", () => { tip.style.display = "none"; });
+  });
+  window.addEventListener("resize", requestDraw);
+  setInterval(requestDraw, 500);   // fait glisser la fenêtre même sans nouveau paquet
+
+  // ── WebSocket ──────────────────────────────────────────────────────────────
+  function connect() {
+    const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
+    ws.onopen = () => { serverUp = true; renderStatus(); };
+    ws.onmessage = e => {
+      const m = JSON.parse(e.data);
+      if (m.type === "data") onData(m);
+      else if (m.type === "status") { status = m; renderStatus(); }
+      else if (m.type === "session") onSession(m);
+      else if (m.type === "program") onProgram(m);
+    };
+    ws.onclose = () => { serverUp = false; renderStatus(); setTimeout(connect, 2000); };
+    ws.onerror = () => ws.close();
+  }
+  renderStatus();
+  connect();
+})();
+</script>
+</body>
+</html>
