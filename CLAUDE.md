@@ -143,7 +143,9 @@ Domyos/
     programme armé / en cours (barre, étape suivante, bouton Arrêter), presets avec
     « Armer » et suppression, composeur Intervalles / Pyramide / Palier avec aperçu des
     étapes, « Armer cette séance » et « Enregistrer en preset » (POST `/api/programs`,
-    écrit `programs.json`), 8 dernières séances. **Étapes éditables** (14/10 soir) : la
+    écrit `programs.json`). Bandeau « Rameur » pleine largeur en tête (connexion, état,
+    session, HA, Jellyfin, chrono, distance, molette, puissance, cadence) ; plus de tableau
+    des dernières séances (l'historique vit dans HA). **Étapes éditables** (14/10 soir) : la
     liste d'aperçu se modifie à la main (nom, durée mm:ss, molette, ↑↓ déplacer, ⧉
     dupliquer, ✕ supprimer, « + Ajouter une étape », « Vider ») ; la première retouche
     passe en onglet « Libre » (type `steps`, les champs du générateur ne s'appliquent

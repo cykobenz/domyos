@@ -148,8 +148,8 @@ class Video:
     async def home(self) -> dict:
         uid = await self._ensure_user()
         resume, nextup = await asyncio.gather(
-            self._get("/UserItems/Resume", {"userId": uid, "Limit": 8, "MediaTypes": "Video", "Fields": ITEM_FIELDS}),
-            self._get("/Shows/NextUp", {"userId": uid, "Limit": 8, "Fields": ITEM_FIELDS}))
+            self._get("/UserItems/Resume", {"userId": uid, "Limit": 4, "MediaTypes": "Video", "Fields": ITEM_FIELDS}),
+            self._get("/Shows/NextUp", {"userId": uid, "Limit": 4, "Fields": ITEM_FIELDS}))
         return {"resume": [self.item_info(i) for i in resume.get("Items", [])],
                 "nextup": [self.item_info(i) for i in nextup.get("Items", [])]}
 
