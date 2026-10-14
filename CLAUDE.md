@@ -81,10 +81,20 @@ Domyos/
   ∈ offline / idle / running / paused. Règle affinée le 14/10 : à la reprise après un
   arrêt court, la console incrémente le compteur de coups avec ~10 s de retard alors que
   la puissance varie déjà (session 14 : 73 W max exclu à tort avec l'ancienne règle).
-- ✅ Dashboard TV v1 (`dashboard/index.html`) : 4 grandes tuiles (temps, distance, allure,
-  puissance), 4 petites (cadence, coups, calories, moyenne séance), 2 graphes 60 s
-  (puissance, cadence, un axe chacun), bandeaux plein écran PAUSE / PRÊT / HORS LIGNE,
-  tuiles grisées « figé » pendant le coasting, reconnexion WS auto, curseur masqué
+- ✅ Dashboard TV v2 « cockpit » (`dashboard/index.html`, 14/10 soir, maquettes A et C
+  validées) : **3 jauges** rondes (arc 270° en SVG : puissance 0–150 W auto-étendu par
+  50 W, cadence 0–40, allure 4:00→1:30) avec **zone cible** de l'étape quand le programme
+  demande une molette (`powerZone(lvl) = [33+4·lvl−8, 33+4·lvl+10]`, cadence 20–26, allure
+  2:40–3:10, constantes en tête du script, à affiner), **bande programme** avec **frise**
+  (un segment par étape, largeur ∝ durée, bleu = niveau bas / orange = niveau haut / gris =
+  libre ; faites = pleines + W moyens obtenus, en cours = contour + remplissage, à venir =
+  grisées ; résumé « fait n · mm:ss · W  ·  écoulé/total  ·  reste n · mm:ss  ·  fin hh:mm »),
+  bandeau bas (temps, distance, coups, calories, moyenne, courbe puissance 60 s). En mode
+  vidéo : vidéo à gauche, jauges puissance + cadence empilées à droite (l'allure devient
+  une tuile), bandeau bas sur 6 tuiles. Le serveur envoie dans `{"type":"program"}` le
+  `plan` complet et `step_power` (puissance moyenne par étape hors coasting, calculée par
+  `ProgramRunner`). Bandeaux plein écran PAUSE / PRÊT / HORS LIGNE (pastille en mode
+  vidéo), « figé » pendant le coasting, reconnexion WS auto, curseur masqué.
 - ✅ `python3 server.py --demo` : rameur simulé (séance 90 s → figé 15 s → pause 20 s →
   reset, en boucle), sessions écrites dans `demo.db` — pour développer le dashboard
   sans ramer ; `--port N` pour tourner à côté du serveur réel

@@ -31,7 +31,7 @@
     overflow: hidden;
     padding: 2vh 2vw;
     display: grid;
-    grid-template-rows: auto auto 1.05fr auto 0.95fr;
+    grid-template-rows: auto auto minmax(0, 1fr) auto;    /* barre, programme, jauges, bandeau bas */
     gap: 2vh;
     cursor: none;
   }
@@ -47,23 +47,39 @@
   header .audio-warn { font-size: 2vh; color: #f5a623; margin-right: 2vw; }
   header .audio-warn[hidden] { display: none; }
 
-  /* ── programme (trainer.py) ── */
+  /* ── programme : bande (étape, cible, suivant, compte à rebours) + frise des étapes ── */
   #program {
-    display: none; align-items: center; gap: 2vw; padding: 1.2vh 2vw;
+    display: none; flex-direction: column; gap: 1.2vh; padding: 1.2vh 2vw 1.4vh;
     background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius);
-    font-size: 3.2vh; position: relative; overflow: hidden;
+    font-size: 3vh; position: relative;
   }
   #program.show { display: flex; }
-  #program .name { color: var(--text-secondary); }
-  #program .step { font-weight: 600; }
-  #program .target { color: var(--series-power); font-weight: 600; }
+  #program .row { display: flex; align-items: baseline; gap: 1.6vw; white-space: nowrap; font-size: 2.6vh; }
+  #program .row > * { flex: none; }
+  #program .name { color: var(--text-secondary); font-size: 2.3vh; }
+  #program .step { font-weight: 600; font-size: 3vh; }
+  #program .target { color: var(--series-cadence); font-weight: 600; }
+  #program .target.free { color: var(--text-muted); font-weight: 400; }
   #program .todo { display: none; color: var(--status-warning); font-weight: 700; }
   #program.mismatch .todo { display: inline; animation: pulse 1s ease-in-out infinite; }
   #program.mismatch { border-color: var(--status-warning); }
   @keyframes pulse { 50% { opacity: .35; } }
-  #program .remaining { margin-left: auto; font-size: 4.5vh; font-weight: 600; }
-  #program .bar { position: absolute; left: 0; bottom: 0; height: .8vh; background: var(--series-power); width: 0; transition: width .3s linear; }
-  #program .next { color: var(--text-muted); font-size: 2.4vh; }
+  #program .next { color: var(--text-muted); font-size: 2.2vh; }
+  #program .summary { flex: 1 1 auto; min-width: 0; margin-left: auto; color: var(--text-muted); font-size: 2vh; text-align: right; overflow: hidden; text-overflow: ellipsis; }
+  #program .remaining { font-size: 5vh; font-weight: 700; line-height: 1; }
+  .p-segs { display: flex; gap: .35vw; height: 5.4vh; }
+  .seg {
+    flex: 1; min-width: 0; border-radius: 1vh; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-size: 1.9vh; line-height: 1.15; overflow: hidden; white-space: nowrap;
+    color: var(--text-muted); background: var(--surface-2); border: 1px solid var(--border); --c: #6b6b66;
+  }
+  .seg.lo { --c: var(--series-power); } .seg.hi { --c: var(--series-cadence); }
+  .seg.done { background: var(--c); color: #fff; border-color: transparent; }
+  .seg.cur { border: 2px solid var(--text-primary); color: #fff; font-weight: 700;
+             background: linear-gradient(90deg, var(--c) var(--p, 0%), var(--surface-2) var(--p, 0%)); }
+  .seg.next { background: color-mix(in srgb, var(--c) 22%, var(--surface-2)); }
+  .seg small { font-size: 1.6vh; opacity: .85; font-weight: 400; }
+  .seg.done.narrow small, .seg.narrow b { display: none; }
 
   /* ── menu programmes (touche P) ── */
   #menu {
@@ -85,32 +101,47 @@
   #menu .hint { color: var(--text-muted); font-size: 2.4vh; }
   #menu .stop { color: var(--status-warning); }
 
-  /* ── tuiles ── */
-  .tiles { display: grid; gap: 1.5vw; }
-  .tiles.big   { grid-template-columns: repeat(4, 1fr); }
-  .tiles.small { grid-template-columns: repeat(4, 1fr); }
+  /* ── jauges (arc 270°, zone cible de l'étape, valeur) ── */
+  .gauges { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.5vw; min-height: 0; }
+  .gauge {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 1.5vh 2vw; display: flex; flex-direction: column; align-items: center; min-height: 0; transition: opacity .4s;
+  }
+  .gauge .label { align-self: flex-start; font-size: 2.4vh; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .08em; }
+  .gauge svg { flex: 1; min-height: 0; width: 100%; }
+  .gauge .zone { font-size: 2.2vh; color: var(--text-secondary); display: flex; gap: .6em; align-items: center; min-height: 2.6vh; }
+  .gauge .zone .sw { width: 1.4em; height: .45em; border-radius: .25em; background: var(--z, #4a5a6e); }
+  .gauge .extra { font-size: 2vh; color: var(--text-muted); min-height: 2.4vh; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .gauge .track { fill: none; stroke: var(--border); stroke-width: 22; }
+  .gauge .zarc { fill: none; stroke: var(--z, #4a5a6e); stroke-width: 22; }
+  .gauge .val { fill: none; stroke: var(--c); stroke-width: 22; transition: stroke-dasharray .4s; }
+  .gauge .big { fill: var(--text-primary); font-size: 92px; font-weight: 600; }
+  .gauge .unit, .gauge .lim { fill: var(--text-muted); font-size: 22px; }
+  .gauge.dim { opacity: .35; }
+  .gauge.dim .label::after { content: " · figé"; color: var(--status-warning); text-transform: none; letter-spacing: 0; }
+  #g-power { --c: var(--series-power); --z: #4a5a6e; }
+  #g-cad   { --c: var(--series-cadence); --z: #6e4a3a; }
+  #g-pace  { --c: #9fb86b; --z: #4f5a4a; }
+
+  /* ── bandeau bas : chiffres + courbe puissance 60 s ── */
+  .strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) 1.4fr; gap: 1.5vw; height: 18vh; }
   .tile {
     background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius);
-    padding: 1.5vh 2vw; display: flex; flex-direction: column; justify-content: center;
-    transition: opacity .4s;
+    padding: 1.2vh 1.6vw; display: flex; flex-direction: column; justify-content: center; min-width: 0; transition: opacity .4s;
   }
-  .tile .label { font-size: 2.4vh; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .08em; }
-  .tile .value { font-size: 14vh; line-height: 1.05; font-weight: 600; letter-spacing: -.02em; }
-  .tile .unit  { font-size: 3vh; color: var(--text-muted); margin-left: .3em; font-weight: 400; }
-  .tiles.small .tile .value { font-size: 6vh; }
-  .tiles.small .tile .label { font-size: 1.9vh; }
+  .tile .label { font-size: 1.9vh; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .08em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile .value { font-size: 6.4vh; line-height: 1.05; font-weight: 600; letter-spacing: -.02em; white-space: nowrap; }
+  .tile .unit  { font-size: 2.3vh; color: var(--text-muted); margin-left: .25em; font-weight: 400; }
   .tile.dim { opacity: .35; }
   .tile.dim .label::after { content: " · figé"; color: var(--status-warning); text-transform: none; letter-spacing: 0; }
-
-  /* ── graphes ── */
-  .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5vw; min-height: 0; }
+  body:not(.video) #t-pace { display: none; }        /* sans vidéo, l'allure est une jauge */
   .chart {
     background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius);
-    padding: 1.2vh 1.5vw; display: flex; flex-direction: column; min-height: 0; position: relative;
+    padding: 1vh 1.4vw; display: flex; flex-direction: column; min-height: 0; min-width: 0; position: relative;
   }
-  .chart h2 { margin: 0 0 .5vh; font-size: 2.2vh; font-weight: 500; color: var(--text-secondary); display: flex; gap: .6em; align-items: center; }
+  .chart h2 { margin: 0 0 .3vh; font-size: 1.9vh; font-weight: 500; color: var(--text-secondary); display: flex; gap: .6em; align-items: center; white-space: nowrap; }
   .chart h2 .swatch { width: 1.2em; height: .35em; border-radius: 2px; }
-  .chart h2 .last { margin-left: auto; color: var(--text-primary); font-size: 2.6vh; }
+  .chart h2 .last { margin-left: auto; color: var(--text-primary); font-size: 2.3vh; }
   .chart canvas { flex: 1; width: 100%; min-height: 0; }
   .tooltip {
     position: absolute; pointer-events: none; display: none;
@@ -145,18 +176,25 @@
   #video.err .caption { color: var(--status-warning); }
   body.video {
     grid-template-columns: minmax(0, 62fr) minmax(0, 38fr);
-    grid-template-rows: auto auto auto minmax(0, 1fr);
-    grid-template-areas: "header header" "program program" "video big" "small charts";
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    grid-template-areas: "header header" "program program" "video gauges" "strip strip";
     column-gap: 1.5vw;
   }
   body.video header { grid-area: header; }
-  body.video #program { grid-area: program; }
-  body.video #video { display: block; grid-area: video; }
-  body.video .tiles.big { grid-area: big; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
-  body.video .tiles.big .tile .value { font-size: 8.5vh; }
-  body.video .tiles.small { grid-area: small; }
-  body.video .charts { grid-area: charts; }
-  body.video .chart h2 { font-size: 1.8vh; white-space: nowrap; } body.video .chart h2 .last { font-size: 2.2vh; }
+  body.video #program { grid-area: program; padding-bottom: 1.2vh; }
+  body.video #program .remaining { font-size: 4vh; }
+  body.video .p-segs { height: 3.8vh; } body.video .seg small { display: none; } body.video .seg { flex-direction: row; gap: .5vw; }
+  body.video #video { display: block; grid-area: video; max-height: none; height: 100%; aspect-ratio: auto; }
+  body.video .gauges { grid-area: gauges; grid-template-columns: minmax(0, 1fr); grid-template-rows: 1fr 1fr; }
+  body.video #g-pace { display: none; }
+  body.video .gauge {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto 1fr; column-gap: 1vw;
+    grid-template-areas: "label svg" "zone svg" "extra svg"; align-items: center; padding: 1.2vh 1.6vw;
+  }
+  body.video .gauge .label { grid-area: label; align-self: end; } body.video .gauge .zone { grid-area: zone; } body.video .gauge .extra { grid-area: extra; align-self: start; }
+  body.video .gauge svg { grid-area: svg; width: auto; height: 100%; max-height: 100%; }
+  body.video .strip { grid-area: strip; grid-template-columns: repeat(6, minmax(0, 1fr)) 1.3fr; height: 16vh; }
+  body.video .tile .value { font-size: 5.4vh; } body.video .tile .label { font-size: 1.7vh; }
   /* en mode vidéo, le bandeau PAUSE / PRÊT devient une pastille pour ne pas couvrir l'image */
   body.video #banner {
     inset: auto 2vw 2vh auto; backdrop-filter: none; background: var(--surface-2);
@@ -180,38 +218,74 @@
 </header>
 
 <section id="program">
-  <span class="name" id="p-name"></span>
-  <span class="step" id="p-step"></span>
-  <span class="target" id="p-target"></span>
-  <span class="todo" id="p-todo"></span>
-  <span class="next" id="p-next"></span>
-  <span class="remaining" id="p-remaining"></span>
-  <div class="bar" id="p-bar"></div>
+  <div class="row">
+    <span class="name" id="p-name"></span>
+    <span class="step" id="p-step"></span>
+    <span class="target" id="p-target"></span>
+    <span class="todo" id="p-todo"></span>
+    <span class="next" id="p-next"></span>
+    <span class="summary" id="p-summary"></span>
+    <span class="remaining" id="p-remaining"></span>
+  </div>
+  <div class="p-segs" id="p-segs"></div>
 </section>
 
 <section id="video"><video id="vid" playsinline></video><div class="caption" id="vid-caption"></div></section>
 
-<section class="tiles big">
-  <div class="tile"><div class="label">Temps</div><div class="value" id="v-time">00:00</div></div>
-  <div class="tile"><div class="label">Distance</div><div class="value" id="v-dist">0<span class="unit">m</span></div></div>
-  <div class="tile" id="t-pace"><div class="label">Allure</div><div class="value" id="v-pace">—<span class="unit">/500m</span></div></div>
-  <div class="tile" id="t-power"><div class="label">Puissance</div><div class="value" id="v-power">—<span class="unit">W</span></div></div>
+<section class="gauges">
+  <div class="gauge" id="g-power">
+    <div class="label">Puissance</div>
+    <svg viewBox="0 0 360 300" aria-hidden="true">
+      <circle class="track" cx="180" cy="170" r="120" stroke-dasharray="565.5 754" transform="rotate(135 180 170)"></circle>
+      <circle class="zarc" id="gz-power" cx="180" cy="170" r="120" stroke-dasharray="0 754" transform="rotate(135 180 170)" style="display:none"></circle>
+      <circle class="val" id="gv-power" cx="180" cy="170" r="120" stroke-dasharray="0 754" transform="rotate(135 180 170)"></circle>
+      <text class="big" id="gt-power" x="180" y="186" text-anchor="middle">—</text>
+      <text class="unit" x="180" y="224" text-anchor="middle">W</text>
+      <text class="lim" id="gmin-power" x="92" y="288" text-anchor="middle">0</text>
+      <text class="lim" id="gmax-power" x="268" y="288" text-anchor="middle">150</text>
+    </svg>
+    <div class="zone" id="z-power"></div>
+    <div class="extra" id="x-power"></div>
+  </div>
+  <div class="gauge" id="g-cad">
+    <div class="label">Cadence</div>
+    <svg viewBox="0 0 360 300" aria-hidden="true">
+      <circle class="track" cx="180" cy="170" r="120" stroke-dasharray="565.5 754" transform="rotate(135 180 170)"></circle>
+      <circle class="zarc" id="gz-cad" cx="180" cy="170" r="120" stroke-dasharray="0 754" transform="rotate(135 180 170)" style="display:none"></circle>
+      <circle class="val" id="gv-cad" cx="180" cy="170" r="120" stroke-dasharray="0 754" transform="rotate(135 180 170)"></circle>
+      <text class="big" id="gt-cad" x="180" y="186" text-anchor="middle">—</text>
+      <text class="unit" x="180" y="224" text-anchor="middle">coups / min</text>
+      <text class="lim" id="gmin-cad" x="92" y="288" text-anchor="middle">0</text>
+      <text class="lim" id="gmax-cad" x="268" y="288" text-anchor="middle">40</text>
+    </svg>
+    <div class="zone" id="z-cad"></div>
+    <div class="extra" id="x-cad"></div>
+  </div>
+  <div class="gauge" id="g-pace">
+    <div class="label">Allure / 500 m</div>
+    <svg viewBox="0 0 360 300" aria-hidden="true">
+      <circle class="track" cx="180" cy="170" r="120" stroke-dasharray="565.5 754" transform="rotate(135 180 170)"></circle>
+      <circle class="zarc" id="gz-pace" cx="180" cy="170" r="120" stroke-dasharray="0 754" transform="rotate(135 180 170)" style="display:none"></circle>
+      <circle class="val" id="gv-pace" cx="180" cy="170" r="120" stroke-dasharray="0 754" transform="rotate(135 180 170)"></circle>
+      <text class="big" id="gt-pace" x="180" y="186" text-anchor="middle">—</text>
+      <text class="unit" x="180" y="224" text-anchor="middle">min / 500 m</text>
+      <text class="lim" id="gmin-pace" x="92" y="288" text-anchor="middle">4:00</text>
+      <text class="lim" id="gmax-pace" x="268" y="288" text-anchor="middle">1:30</text>
+    </svg>
+    <div class="zone" id="z-pace"></div>
+    <div class="extra" id="x-pace"></div>
+  </div>
 </section>
 
-<section class="tiles small">
-  <div class="tile" id="t-cad"><div class="label">Cadence</div><div class="value" id="v-cad">—<span class="unit">cpm</span></div></div>
+<section class="strip">
+  <div class="tile"><div class="label">Temps</div><div class="value" id="v-time">00:00</div></div>
+  <div class="tile"><div class="label">Distance</div><div class="value" id="v-dist">0<span class="unit">m</span></div></div>
+  <div class="tile" id="t-pace"><div class="label">Allure</div><div class="value" id="v-pace">—<span class="unit">/500 m</span></div></div>
   <div class="tile"><div class="label">Coups</div><div class="value" id="v-strokes">0</div></div>
   <div class="tile"><div class="label">Calories</div><div class="value" id="v-cal">0<span class="unit">kcal</span></div></div>
   <div class="tile"><div class="label">Moyenne séance</div><div class="value" id="v-avg">—<span class="unit">W</span></div></div>
-</section>
-
-<section class="charts">
   <div class="chart" id="c-power">
     <h2><span class="swatch" style="background:var(--series-power)"></span>Puissance · 60 s<span class="last" id="l-power">—</span></h2>
-    <canvas></canvas><div class="tooltip"></div>
-  </div>
-  <div class="chart" id="c-cad">
-    <h2><span class="swatch" style="background:var(--series-cadence)"></span>Cadence · 60 s<span class="last" id="l-cad">—</span></h2>
     <canvas></canvas><div class="tooltip"></div>
   </div>
 </section>
@@ -281,27 +355,65 @@
                                 video: videoState && { session: videoSession, t: vid.currentTime, paused: vid.paused, ready: vid.readyState } });   // console / tests
 
   // ── données ────────────────────────────────────────────────────────────────
+  // ── jauges : arc de 270° (dasharray sur un cercle tourné de 135°), zone cible de l'étape ──
+  const ARC = 565.5, CIRC = 754;
+  const GAUGE = {
+    power: { min: 0, max: 150 },
+    cad:   { min: 0, max: 40 },
+    pace:  { min: 240, max: 90 },          // 4:00 à gauche, 1:30 à droite (plus vite = plus loin)
+  };
+  // Zones cibles : puissance selon la molette demandée (R2 ≈ 41 W, R5 ≈ 51 W mesurés le 14/10,
+  // la zone s'élargit avec le niveau) ; cadence et allure fixes. À affiner avec les séances.
+  const powerZone = lvl => [33 + 4 * lvl - 8, 33 + 4 * lvl + 10];
+  const CAD_ZONE = [20, 26], PACE_ZONE = [190, 160];
+  const frac = (key, v) => Math.max(0, Math.min(1, (v - GAUGE[key].min) / (GAUGE[key].max - GAUGE[key].min)));
+  function setGauge(key, value, text, zone, zoneText) {
+    $("gv-" + key).setAttribute("stroke-dasharray", `${value == null ? 0 : ARC * frac(key, value)} ${CIRC}`);
+    const z = $("gz-" + key);
+    if (zone) {
+      const a = frac(key, zone[0]), b = frac(key, zone[1]);
+      z.setAttribute("stroke-dasharray", `${ARC * Math.max(0, b - a)} ${CIRC}`); z.setAttribute("stroke-dashoffset", `${-ARC * a}`); z.style.display = "";
+    } else z.style.display = "none";
+    $("gt-" + key).textContent = text;
+    $("z-" + key).innerHTML = zoneText ? `<span class="sw"></span>${zoneText}` : "";
+  }
+  let lastData = null;
+  function renderGauges() {
+    const d = lastData || {};
+    const target = program && program.resistance ? program.resistance : null;   // étape avec consigne → zones
+    // échelle de puissance : s'étend par paliers de 50 W si on dépasse
+    const pmax = Math.max(150, Math.ceil((d.power_w || 0) / 50) * 50);
+    if (pmax !== GAUGE.power.max) { GAUGE.power.max = pmax; $("gmax-power").textContent = pmax; }
+    const pz = target ? powerZone(target) : null;
+    setGauge("power", d.power_w, d.power_w ? d.power_w : "—", pz, pz ? `cible R${target} : ${pz[0]} – ${pz[1]} W` : "");
+    setGauge("cad", d.stroke_rate, d.stroke_rate ? d.stroke_rate.toFixed(0) : "—", target ? CAD_ZONE : null, target ? `cible : ${CAD_ZONE[0]} – ${CAD_ZONE[1]}` : "");
+    setGauge("pace", d.pace_s, fmtPace(d.pace_s), target ? PACE_ZONE : null, target ? `cible : ${fmtPace(PACE_ZONE[1])} – ${fmtPace(PACE_ZONE[0])}` : "");
+    const stepAvg = program && program.step_power ? program.step_power[program.step - 1] : null;
+    const sessAvg = sessionPower.length ? Math.round(sessionPower.reduce((a, b) => a + b, 0) / sessionPower.length) : null;
+    $("x-power").textContent = [stepAvg ? `moy. étape ${stepAvg} W` : "", sessAvg ? `séance ${sessAvg} W` : ""].filter(Boolean).join(" · ");
+    $("x-cad").textContent = d.pace_s ? `allure ${fmtPace(d.pace_s)} / 500 m` : "";
+    for (const id of ["g-power", "g-cad", "g-pace", "t-pace"]) $(id).classList.toggle("dim", !!d.coasting);
+  }
+
   function onData(d) {
+    lastData = d;
     setVal("v-time", fmtTime(d.elapsed_s));
     setVal("v-dist", d.distance_m ?? 0, "m");
-    setVal("v-pace", fmtPace(d.pace_s), "/500m");
-    setVal("v-power", d.power_w ? d.power_w : "—", "W");
-    setVal("v-cad", d.stroke_rate ? d.stroke_rate.toFixed(0) : "—", "cpm");
+    setVal("v-pace", fmtPace(d.pace_s), "/500 m");
     setVal("v-strokes", d.stroke_count ?? 0);
     setVal("v-cal", d.calories ?? 0, "kcal");
     $("resistance-text").textContent = d.resistance ? `résistance ${d.resistance}` : "";
     actualResistance = d.resistance ?? null;
     checkMismatch();
-    for (const id of ["t-pace", "t-power", "t-cad"]) $(id).classList.toggle("dim", !!d.coasting);
 
     if (d.session_id && !d.coasting && d.power_w > 0) sessionPower.push(d.power_w);
     if (sessionPower.length) setVal("v-avg", Math.round(sessionPower.reduce((a, b) => a + b, 0) / sessionPower.length), "W");
+    renderGauges();
 
     const t = performance.now() / 1000;
-    points.push({ t, power: d.coasting ? null : d.power_w, cad: d.coasting ? null : d.stroke_rate, coasting: !!d.coasting });
+    points.push({ t, power: d.coasting ? null : d.power_w, coasting: !!d.coasting });
     while (points.length && points[0].t < t - WINDOW_S - 1) points.shift();
     $("l-power").textContent = d.power_w && !d.coasting ? `${d.power_w} W` : "—";
-    $("l-cad").textContent = d.stroke_rate && !d.coasting ? `${d.stroke_rate.toFixed(0)} cpm` : "—";
     requestDraw();
   }
 
@@ -311,7 +423,7 @@
     const el = $("program");
     program = m.active ? m : null;
     if (!program) {
-      el.classList.remove("show", "mismatch"); lastTarget = null; checkMismatch();
+      el.classList.remove("show", "mismatch"); lastTarget = null; checkMismatch(); renderGauges();
       if (m.finished) {                        // bandeau « terminé » 8 s + bip
         beep(2);
         $("banner").className = "show idle";
@@ -325,13 +437,40 @@
     $("p-name").textContent = m.name;
     $("p-step").textContent = m.started ? `${m.label} · ${m.step}/${m.steps}` : `${m.label} · démarre au premier coup`;
     $("p-target").textContent = m.resistance ? `cible R${m.resistance}` : "molette libre";
+    $("p-target").classList.toggle("free", !m.resistance);
     $("p-next").textContent = m.next_label ? `ensuite ${m.next_label}${m.next_resistance ? ` R${m.next_resistance}` : ""}` : "dernière étape";
     $("p-remaining").textContent = fmtTime(m.remaining_s);
-    $("p-bar").style.width = `${Math.min(100, 100 * m.elapsed_s / m.total_s)}%`;
+    renderSegments(m);
+    renderGauges();
     // bip au changement de consigne (montée / descente) ; une étape « molette libre » ne bipe pas
     if (lastTarget !== null && m.resistance && m.resistance !== lastTarget) beep(m.resistance > lastTarget ? 2 : 1);
     lastTarget = m.resistance || null;
     checkMismatch();
+  }
+  // Frise : un segment par étape (largeur ∝ durée, teinte = molette), faites / en cours / à venir
+  function renderSegments(m) {
+    const plan = m.plan || [], cur = m.step - 1, lvls = plan.map(s => s.resistance).filter(Boolean);
+    const hi = lvls.length ? Math.max(...lvls) : null, lo = lvls.length ? Math.min(...lvls) : null;
+    const narrow = plan.length > 16;
+    $("p-segs").innerHTML = plan.map((s, i) => {
+      const tone = !s.resistance ? "" : (s.resistance === hi && hi !== lo) ? "hi" : "lo";
+      const state = i < cur ? "done" : i === cur ? "cur" : "next";
+      const pct = i === cur && m.started ? Math.round(100 * (s.duration_s - m.remaining_s) / s.duration_s) : 0;
+      const w = m.step_power && m.step_power[i];
+      const main = s.resistance ? `R${s.resistance}` : (s.label.length > 10 ? "libre" : s.label);
+      const sub = i < cur ? `✓${w ? ` ${w} W` : ""}` : i === cur ? (m.started ? `${w ? `${w} W` : "en cours"}` : "au 1er coup") : fmtTime(s.duration_s);
+      return `<div class="seg ${state} ${tone}${narrow ? " narrow" : ""}" style="flex:${s.duration_s};--p:${pct}%" title="${s.label}"><b>${main}</b><small>${sub}</small></div>`;
+    }).join("");
+    const doneSteps = plan.slice(0, cur), doneT = doneSteps.reduce((a, s) => a + s.duration_s, 0);
+    const doneW = (m.step_power || []).slice(0, cur).filter(Boolean);
+    const restT = Math.max(0, m.total_s - m.elapsed_s - m.remaining_s), restN = plan.length - cur - 1;
+    const end = new Date(Date.now() + 1000 * Math.max(0, m.total_s - m.elapsed_s));
+    $("p-summary").textContent = [
+      cur ? `fait ${cur} · ${fmtTime(doneT)}${doneW.length ? ` · ${Math.round(doneW.reduce((a, b) => a + b, 0) / doneW.length)} W` : ""}` : "",
+      `${fmtTime(m.elapsed_s)} / ${fmtTime(m.total_s)}`,
+      restN > 0 ? `reste ${restN} · ${fmtTime(restT)}` : "",
+      m.started ? `fin ${pad(end.getHours())}:${pad(end.getMinutes())}` : "",
+    ].filter(Boolean).join("  ·  ");
   }
   // La console notifie chaque cran de molette (Fitness Machine Status 0x07, niveau × 10) :
   // plus réactif que le champ résistance du flux de données.
@@ -347,7 +486,7 @@
   function checkMismatch() {
     const bad = !!program && !!program.resistance && actualResistance != null && actualResistance !== program.resistance;
     $("program").classList.toggle("mismatch", bad);
-    $("p-todo").textContent = bad ? `→ règle la molette sur ${program.resistance}` : "";
+    $("p-todo").textContent = bad ? `→ molette sur ${program.resistance}` : "";
     // rappel seulement pendant qu'on rame (pas en pause, prêt ou hors ligne)
     const rowing = () => serverUp && status.connected && status.machine_state === "running" && program && program.started;
     if (bad && !mismatchTimer) mismatchTimer = setInterval(() => { if (rowing()) beep(3, 660); }, 10000);
@@ -491,8 +630,7 @@
 
   // ── graphes (Canvas2D, un axe par graphe) ──────────────────────────────────
   const charts = [
-    { el: $("c-power"), key: "power", color: getComputedStyle(document.documentElement).getPropertyValue("--series-power").trim(), unit: "W",   min: 0, floor: 100 },
-    { el: $("c-cad"),   key: "cad",   color: getComputedStyle(document.documentElement).getPropertyValue("--series-cadence").trim(), unit: "cpm", min: 0, floor: 30 },
+    { el: $("c-power"), key: "power", color: getComputedStyle(document.documentElement).getPropertyValue("--series-power").trim(), unit: "W", min: 0, floor: 100 },
   ];
   const css = getComputedStyle(document.documentElement);
   const C = { grid: css.getPropertyValue("--border").trim(), muted: css.getPropertyValue("--text-muted").trim(), text: css.getPropertyValue("--text-secondary").trim() };
@@ -510,7 +648,7 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
 
-    const fs = Math.max(14, Math.round(h * 0.075));          // police des axes ∝ hauteur (lisible depuis le canapé)
+    const fs = Math.max(13, Math.round(h * 0.11));          // police des axes ∝ hauteur (lisible depuis le canapé)
     const padL = fs * 3.2, padR = 14, padT = fs * 0.6, padB = fs * 1.8;
     const now = performance.now() / 1000;
     const vals = points.map(p => p[ch.key]).filter(v => v != null);

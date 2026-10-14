@@ -133,6 +133,7 @@ class ProgramRunner:
         self.step_start: int | None = None    # chrono rameur au début de l'étape courante
         self.msg: dict | None = None          # dernier message diffusé (renvoyé aux nouveaux clients)
         self._last_key = None
+        self._power: list[list[float]] = []   # par étape : [somme des puissances, nb de paquets] (hors coasting)
 
     @property
     def active(self) -> bool:
@@ -143,6 +144,7 @@ class ProgramRunner:
         self.total = sum(s["duration_s"] for s in steps)
         self.step_start = None
         self._last_key = None
+        self._power = [[0.0, 0] for _ in steps]
         log("PROG", f"« {name} » : {len(steps)} étapes, {self.total // 60} min {self.total % 60:02d} s ({source})")
         await self._publish(steps[0]["duration_s"])
         if self.server.machine_state == "running" and self.server.last_data:
@@ -156,7 +158,7 @@ class ProgramRunner:
         log("PROG", f"« {name} » {'terminé' if finished else 'arrêté'}")
         await self.server.broadcast({"type": "program", "active": False, "finished": finished, "name": name})
 
-    async def tick(self, elapsed: int | None) -> None:
+    async def tick(self, elapsed: int | None, power: float | None = None, coasting: bool = False) -> None:
         """À chaque paquet Rower Data (ou à la reprise)."""
         if not self.active or elapsed is None:
             return
@@ -166,6 +168,10 @@ class ProgramRunner:
             self.step_start = elapsed
         if elapsed < self.step_start:         # reset du rameur → on repart de l'étape courante
             self.step_start = elapsed
+        if power and not coasting and self.server.machine_state == "running":
+            acc = self._power[self.idx]
+            acc[0] += power; acc[1] += 1
+            self._last_key = None             # la moyenne de l'étape change → republier
         step = self.steps[self.idx]
         remaining = step["duration_s"] - (elapsed - self.step_start)
         if remaining <= 0:
@@ -194,6 +200,9 @@ class ProgramRunner:
             "started": self.step_start is not None,
             "next_label": nxt["label"] if nxt else None,
             "next_resistance": nxt["resistance"] if nxt else None,
+            # plan complet + puissance moyenne obtenue par étape (None tant que rien n'est mesuré)
+            "plan": self.steps,
+            "step_power": [round(s / n) if n else None for s, n in self._power],
         }
         await self.server.broadcast(self.msg)
 
@@ -302,7 +311,7 @@ class RowerServer:
             await self.broadcast(self.status_msg())
         self.last_data = self.data_msg(parsed, self.logger.session_id)
         await self.broadcast(self.last_data)
-        await self.runner.tick(parsed.get("elapsed_s"))
+        await self.runner.tick(parsed.get("elapsed_s"), parsed.get("power_w"), self.logger.coasting)
 
     async def on_machine_status(self, _sender, data: bytearray) -> None:
         st = ftms.parse_machine_status(data)
