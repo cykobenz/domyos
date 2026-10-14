@@ -44,6 +44,8 @@
   header .dot.paused { background: var(--status-warning); }
   header .spacer { flex: 1; }
   header .clock { font-size: 2.6vh; color: var(--text-primary); }
+  header .audio-warn { font-size: 2vh; color: #f5a623; margin-right: 2vw; }
+  header .audio-warn[hidden] { display: none; }
 
   /* ── programme (trainer.py) ── */
   #program {
@@ -116,6 +118,7 @@
   <span id="session-text"></span>
   <span class="spacer"></span>
   <span id="resistance-text"></span>
+  <span class="audio-warn" id="audio-warn" hidden>🔇 son bloqué — clique ou appuie sur B</span>
   <span class="clock" id="clock">--:--</span>
 </header>
 
@@ -205,7 +208,7 @@
     } catch (e) { wakeLock = null; /* refusé par le navigateur : l'inhibiteur système prend le relais */ }
   }
   document.addEventListener("visibilitychange", () => { if (wantWake) updateWakeLock(true); });
-  window.domyosDebug = () => ({ wantWake, wakeLockHeld: !!wakeLock, status });   // console / tests
+  window.domyosDebug = () => ({ wantWake, wakeLockHeld: !!wakeLock, audio: audio && audio.state, status });   // console / tests
 
   // ── données ────────────────────────────────────────────────────────────────
   function onData(d) {
@@ -255,19 +258,35 @@
     $("p-todo").textContent = bad ? `→ règle la molette sur ${program.resistance}` : "";
   }
   // bip court (Web Audio, sans fichier) — Brave : --autoplay-policy=no-user-gesture-required
+  // Sans le flag, Chromium crée l'AudioContext « suspended » jusqu'au premier geste :
+  // on l'indique dans la barre (🔇) et un clic / la touche B débloque le son.
   let audio = null;
+  function audioCtx() {
+    audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+    if (audio.state === "suspended") audio.resume();
+    $("audio-warn").hidden = audio.state === "running";
+    audio.onstatechange = () => { $("audio-warn").hidden = audio.state === "running"; };
+    return audio;
+  }
   function beep(n) {
     try {
-      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = audioCtx();
+      // montée (n=2) : deux bips aigus ; descente (n=1) : un bip grave plus long
+      const freq = n === 1 ? 440 : 880, dur = n === 1 ? 0.45 : 0.22;
       for (let i = 0; i < n; i++) {
-        const o = audio.createOscillator(), g = audio.createGain();
-        o.connect(g); g.connect(audio.destination);
-        o.frequency.value = 880; g.gain.value = 0.15;
-        const t0 = audio.currentTime + i * 0.25;
-        o.start(t0); o.stop(t0 + 0.15);
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.connect(g); g.connect(ctx.destination);
+        o.type = "square"; o.frequency.value = freq;
+        const t0 = ctx.currentTime + i * 0.32;
+        g.gain.setValueAtTime(0.4, t0); g.gain.exponentialRampToValueAtTime(0.01, t0 + dur);
+        o.start(t0); o.stop(t0 + dur);
       }
     } catch (e) { /* audio bloqué par le navigateur : l'alerte visuelle suffit */ }
   }
+  // Débloquer le son au premier geste (si le flag autoplay manque) ; B = bip de test
+  window.addEventListener("click", () => audioCtx(), { once: true });
+  window.addEventListener("keydown", e => { if (e.key === "b" || e.key === "B") beep(2); });
+  setTimeout(() => { try { audioCtx(); } catch (e) {} }, 1500);   // affiche 🔇 dès le chargement si bloqué
 
   function onSession(m) {
     if (m.event === "started") { sessionPower = []; setVal("v-avg", "—", "W"); }
